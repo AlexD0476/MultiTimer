@@ -2,6 +2,7 @@ package com.example.multitimer;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -11,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class TimerPersistence {
+    private static final String TAG = "TimerPersistence";
     private static final String PREFS_NAME = "multitimer_prefs";
     private static final String KEY_TIMERS = "timers";
 
@@ -36,8 +38,9 @@ final class TimerPersistence {
                         item.optBoolean("notificationDismissed", false)
                 ));
             }
-        } catch (JSONException ignored) {
-            preferences.edit().remove(KEY_TIMERS).apply();
+        } catch (JSONException parseError) {
+            // Keep the raw value so user data is not destroyed by one bad parse.
+            Log.e(TAG, "Failed to parse persisted timers", parseError);
         }
 
         return timers;

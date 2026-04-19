@@ -65,7 +65,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.setAction(ACTION_ADD_TIMER);
         intent.putExtra(EXTRA_NAME, name);
         intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
-        ContextCompat.startForegroundService(context, intent);
+        startServiceBestEffort(context, intent, false);
     }
 
     public static void enqueueClearCompleted(Context context) {
@@ -106,7 +106,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.putExtra(EXTRA_TIMER_ID, timerId);
         intent.putExtra(EXTRA_NAME, name);
         intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
-        ContextCompat.startForegroundService(context, intent);
+        startServiceBestEffort(context, intent, false);
     }
 
     public static void enqueueRestartTimer(Context context, long timerId) {
@@ -114,7 +114,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         Intent intent = new Intent(context, TimerService.class);
         intent.setAction(ACTION_RESTART_TIMER);
         intent.putExtra(EXTRA_TIMER_ID, timerId);
-        ContextCompat.startForegroundService(context, intent);
+        startServiceBestEffort(context, intent, false);
     }
 
     public static void ensureTimersLoaded(Context context) {
@@ -139,9 +139,26 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 if (timer.isRunning(now)) {
                     Intent intent = new Intent(context, TimerService.class);
                     intent.setAction(ACTION_RESYNC);
-                    ContextCompat.startForegroundService(context, intent);
+                    startServiceBestEffort(context, intent, true);
                     return;
                 }
+            }
+        }
+    }
+
+    private static void startServiceBestEffort(Context context, Intent intent, boolean preferForeground) {
+        try {
+            if (preferForeground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(context, intent);
+            } else {
+                context.startService(intent);
+            }
+        } catch (RuntimeException firstError) {
+            Log.w(TAG, "Primary service start failed, trying fallback", firstError);
+            try {
+                context.startService(intent);
+            } catch (RuntimeException fallbackError) {
+                Log.e(TAG, "Fallback service start failed", fallbackError);
             }
         }
     }

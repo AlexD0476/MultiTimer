@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="nightBackground">#090B10</color>
+    <color name="nightBackgroundAlt">#111723</color>
+    <color name="surfacePanel">#161D2B</color>
+    <color name="surfaceCard">#1B2535</color>
+    <color name="surfaceCardAlt">#233149</color>
+    <color name="strokeStrong">#2E4465</color>
+    <color name="accentPrimary">#63E6BE</color>
+    <color name="accentPrimaryDark">#29B98B</color>
+    <color name="statusGreenFill">#1A3B2A</color>
+    <color name="statusYellowFill">#3E3212</color>
+    <color name="statusYellowStroke">#FFC96B</color>
+    <color name="statusRedFill">#3B1A1A</color>
+    <color name="statusRedStroke">#E05252</color>
+    <color name="accentWarm">#FFC96B</color>
+    <color name="textPrimary">#F4F7FB</color>
+    <color name="textSecondary">#B7C4D9</color>
+    <color name="textMuted">#8492A8</color>
+    <color name="scrimSoft">#66090B10</color>
+</resources>

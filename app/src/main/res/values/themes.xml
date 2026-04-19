@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.MultiTimer.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/nightBackground</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/surfaceCardAlt</item>
+        <item name="postSplashScreenTheme">@style/Theme.MultiTimer</item>
+    </style>
+
+    <style name="Theme.MultiTimer" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/accentPrimary</item>
+        <item name="colorOnPrimary">@color/nightBackground</item>
+        <item name="colorPrimaryContainer">@color/accentPrimaryDark</item>
+        <item name="colorSecondary">@color/accentWarm</item>
+        <item name="colorOnSecondary">@color/nightBackground</item>
+        <item name="colorSurface">@color/surfacePanel</item>
+        <item name="colorSurfaceContainer">@color/surfaceCard</item>
+        <item name="android:colorBackground">@color/nightBackground</item>
+        <item name="android:statusBarColor">@color/nightBackground</item>
+        <item name="android:navigationBarColor">@color/nightBackground</item>
+        <item name="android:enforceStatusBarContrast">true</item>
+        <item name="android:enforceNavigationBarContrast">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="materialButtonStyle">@style/Widget.MultiTimer.PrimaryButton</item>
+        <item name="android:windowBackground">@drawable/bg_screen</item>
+    </style>
+
+    <style name="Widget.MultiTimer.TextInputLayout" parent="Widget.Material3.TextInputLayout.OutlinedBox">
+        <item name="boxBackgroundColor">@color/surfaceCard</item>
+        <item name="boxStrokeColor">@color/strokeStrong</item>
+        <item name="hintTextColor">@color/textMuted</item>
+        <item name="android:textColorHint">@color/textMuted</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.MultiTimer.Field</item>
+    </style>
+
+    <style name="Widget.MultiTimer.PrimaryButton" parent="Widget.Material3.Button">
+        <item name="android:textColor">@color/nightBackground</item>
+        <item name="backgroundTint">@color/accentPrimary</item>
+        <item name="cornerRadius">18dp</item>
+        <item name="android:paddingTop">14dp</item>
+        <item name="android:paddingBottom">14dp</item>
+    </style>
+
+    <style name="Widget.MultiTimer.SecondaryButton" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:textColor">@color/textPrimary</item>
+        <item name="strokeColor">@color/strokeStrong</item>
+        <item name="backgroundTint">@color/surfaceCardAlt</item>
+        <item name="cornerRadius">16dp</item>
+    </style>
+
+    <style name="ShapeAppearance.MultiTimer.Field" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">18dp</item>
+    </style>
+</resources>

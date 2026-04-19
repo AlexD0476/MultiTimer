@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MultiTimer</string>
+    <string name="hero_badge">Parallel und fokussiert</string>
+    <string name="hero_title">Mehrere Timer. Ein ruhiger Überblick.</string>
+    <string name="hero_subtitle">Starte beliebig viele Timer parallel, gib jedem einen Namen und verfolge alles direkt in den Notifications.</string>
+    <string name="splash_title">MultiTimer</string>
+    <string name="splash_subtitle">Parallel. Benannt. Praezise.</string>
+    <string name="hint_timer_name">Timer-Name</string>
+    <string name="hint_minutes">Minuten</string>
+    <string name="hint_seconds">Sekunden</string>
+    <string name="action_new_timer">Neuer Timer</string>
+    <string name="action_start_timer">Timer starten</string>
+    <string name="action_save_timer">Speichern</string>
+    <string name="action_restart_timer">Timer neu starten</string>
+    <string name="action_cancel_timer">Timer abbrechen</string>
+    <string name="action_dismiss_notification">Notification beenden</string>
+    <string name="action_delete_timer">Timer löschen</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="action_close">Schließen</string>
+    <string name="action_keep_running">Weiter laufen lassen</string>
+    <string name="action_show_info">Info anzeigen</string>
+    <string name="action_clear_completed">Erledigte löschen</string>
+    <string name="section_active_timers">Laufende und beendete Timer</string>
+    <string name="section_running_timers">Timerübersicht</string>
+    <string name="section_running_timers_hint">Laufende Timer stehen oben und sind nach Restzeit sortiert.</string>
+    <string name="empty_state">Noch keine Timer aktiv. Gib einem Timer einen Namen und starte ihn.</string>
+    <string name="empty_state_running">Keine laufenden Timer. Erstelle einen neuen Timer über den Button oben.</string>
+    <string name="dialog_new_timer_title">Neuen Timer erfassen</string>
+    <string name="dialog_edit_timer_title">Timer bearbeiten</string>
+    <string name="dialog_cancel_timer_title">Wirklich abbrechen?</string>
+    <string name="dialog_cancel_timer_message">Soll der Timer %1$s wirklich abgebrochen werden?</string>
+    <string name="dialog_delete_timer_title">Wirklich löschen?</string>
+    <string name="dialog_delete_timer_message">Soll der Timer %1$s wirklich gelöscht werden?</string>
+    <string name="info_dialog_message">%1$s
+
+%2$s</string>
+    <string name="error_name_required">Bitte einen Namen eingeben.</string>
+    <string name="error_duration_required">Bitte eine Dauer größer als 0 setzen.</string>
+    <string name="timer_status_running">LÄUFT</string>
+    <string name="timer_status_completed">FERTIG</string>
+    <string name="timer_status_cancelled">ABGEBROCHEN</string>
+    <string name="timer_remaining_done">Fertig</string>
+    <string name="timer_remaining_cancelled">Abgebrochen</string>
+    <string name="timer_duration_template">Dauer: %1$s</string>
+    <string name="channel_running_name">Aktive Timer</string>
+    <string name="channel_running_description">Zeigt laufende Timer als stille Status-Benachrichtigung an.</string>
+    <string name="channel_finished_name">Abgeschlossene Timer</string>
+    <string name="channel_finished_description">Informiert lautstark über fertig abgelaufene Timer.</string>
+    <string name="summary_finishing_voice">Letzte Sprachansage wird abgespielt.</string>
+    <plurals name="summary_running_timers">
+        <item quantity="one">%1$d Timer laeuft im Hintergrund.</item>
+        <item quantity="other">%1$d Timer laufen im Hintergrund.</item>
+    </plurals>
+    <string name="timer_notification_completed">Fertig</string>
+    <string name="timer_notification_remaining">Verbleibend: %1$s</string>
+    <string name="timer_notification_dismiss_action">Beenden</string>
+    <string name="tts_completed">Fertig</string>
+</resources>

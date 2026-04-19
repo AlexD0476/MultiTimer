@@ -1,0 +1,29 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build MultiTimer Debug APK",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				"--no-daemon",
+				"assembleDebug",
+				"--console=plain"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build MultiTimer Debug APK",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				"--no-daemon",
+				"assembleDebug",
+				"--console=plain"
+			],
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}

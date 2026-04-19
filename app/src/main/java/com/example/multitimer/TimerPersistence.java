@@ -1,0 +1,66 @@
+package com.example.multitimer;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
+final class TimerPersistence {
+    private static final String PREFS_NAME = "multitimer_prefs";
+    private static final String KEY_TIMERS = "timers";
+
+    private TimerPersistence() {
+    }
+
+    static List<ManagedTimer> load(Context context) {
+        SharedPreferences preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String raw = preferences.getString(KEY_TIMERS, "[]");
+        List<ManagedTimer> timers = new ArrayList<>();
+
+        try {
+            JSONArray jsonArray = new JSONArray(raw);
+            for (int index = 0; index < jsonArray.length(); index++) {
+                JSONObject item = jsonArray.getJSONObject(index);
+                timers.add(new ManagedTimer(
+                        item.getLong("id"),
+                        item.getString("name"),
+                        item.getLong("durationMillis"),
+                        item.getLong("endTimeMillis"),
+                        item.optBoolean("completed", false),
+                        item.optBoolean("cancelled", false),
+                        item.optBoolean("notificationDismissed", false)
+                ));
+            }
+        } catch (JSONException ignored) {
+            preferences.edit().remove(KEY_TIMERS).apply();
+        }
+
+        return timers;
+    }
+
+    static void save(Context context, List<ManagedTimer> timers) {
+        JSONArray jsonArray = new JSONArray();
+        for (ManagedTimer timer : timers) {
+            JSONObject item = new JSONObject();
+            try {
+                item.put("id", timer.getId());
+                item.put("name", timer.getName());
+                item.put("durationMillis", timer.getDurationMillis());
+                item.put("endTimeMillis", timer.getEndTimeMillis());
+                item.put("completed", timer.isCompleted());
+                item.put("cancelled", timer.isCancelled());
+                item.put("notificationDismissed", timer.isNotificationDismissed());
+                jsonArray.put(item);
+            } catch (JSONException ignored) {
+            }
+        }
+
+        SharedPreferences preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        preferences.edit().putString(KEY_TIMERS, jsonArray.toString()).apply();
+    }
+}

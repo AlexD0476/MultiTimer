@@ -33,6 +33,7 @@ final class TimerPersistence {
                         item.getString("name"),
                         item.getLong("durationMillis"),
                         item.getLong("endTimeMillis"),
+                    item.optBoolean("started", true),
                         item.optBoolean("completed", false),
                         item.optBoolean("cancelled", false),
                         item.optBoolean("notificationDismissed", false)
@@ -55,6 +56,7 @@ final class TimerPersistence {
                 item.put("name", timer.getName());
                 item.put("durationMillis", timer.getDurationMillis());
                 item.put("endTimeMillis", timer.getEndTimeMillis());
+                item.put("started", timer.isStarted());
                 item.put("completed", timer.isCompleted());
                 item.put("cancelled", timer.isCancelled());
                 item.put("notificationDismissed", timer.isNotificationDismissed());
@@ -64,6 +66,9 @@ final class TimerPersistence {
         }
 
         SharedPreferences preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        preferences.edit().putString(KEY_TIMERS, jsonArray.toString()).apply();
+        boolean ok = preferences.edit().putString(KEY_TIMERS, jsonArray.toString()).commit();
+        if (!ok) {
+            Log.e(TAG, "Failed to commit timers to SharedPreferences");
+        }
     }
 }

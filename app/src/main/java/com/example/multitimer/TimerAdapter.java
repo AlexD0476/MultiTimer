@@ -88,7 +88,30 @@ final class TimerAdapter extends RecyclerView.Adapter<TimerAdapter.TimerViewHold
                     TimerFormatter.formatDuration(timer.getDurationMillis())
             ));
 
-            if (timer.isCompleted() || timer.isCancelled()) {
+                if (!timer.isStarted() && !timer.isTerminal()) {
+                statusView.setText(R.string.timer_status_ready);
+                statusView.setBackground(ContextCompat.getDrawable(itemView.getContext(),
+                        R.drawable.bg_status_chip_ready_blue));
+                statusView.setTextColor(ContextCompat.getColor(itemView.getContext(),
+                        R.color.statusBlueStroke));
+                remainingView.setText(TimerFormatter.formatDuration(timer.getDurationMillis()));
+                stopBlink();
+                statusView.setAlpha(1f);
+
+                actionButton.setImageResource(android.R.drawable.ic_media_play);
+                actionButton.setContentDescription(itemView.getContext().getString(R.string.action_start_timer));
+                actionButton.setAlpha(1f);
+                actionButton.setEnabled(true);
+                actionButton.setOnClickListener(v -> actionListener.onRestartTimer(timer));
+
+                notificationButton.setAlpha(0.3f);
+                notificationButton.setEnabled(false);
+                notificationButton.setOnClickListener(null);
+
+                deleteButton.setAlpha(1f);
+                deleteButton.setEnabled(true);
+                deleteButton.setOnClickListener(v -> actionListener.onDeleteTimer(timer));
+                } else if (timer.isCompleted() || timer.isCancelled()) {
                 statusView.setText(timer.isCompleted()
                         ? R.string.timer_status_completed
                         : R.string.timer_status_cancelled);

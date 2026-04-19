@@ -11,6 +11,8 @@
     <color name="statusGreenFill">#1A3B2A</color>
     <color name="statusYellowFill">#3E3212</color>
     <color name="statusYellowStroke">#FFC96B</color>
+    <color name="statusBlueFill">#1A2E4A</color>
+    <color name="statusBlueStroke">#6BB6FF</color>
     <color name="statusRedFill">#3B1A1A</color>
     <color name="statusRedStroke">#E05252</color>
     <color name="accentWarm">#FFC96B</color>

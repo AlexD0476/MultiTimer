@@ -27,9 +27,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class MainActivity extends AppCompatActivity {
-    private static final int MAX_VISIBLE_TIMERS = 3;
-    private static final int FALLBACK_TIMER_ROW_HEIGHT_DP = 146;
-
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final Runnable refreshRunnable = new Runnable() {
         @Override
@@ -99,7 +96,16 @@ public final class MainActivity extends AppCompatActivity {
         recyclerView.setAdapter(adapter);
 
         infoButton.setOnClickListener(v -> showInfoDialog());
+        newTimerButton.setClickable(true);
+        newTimerButton.setEnabled(true);
+        newTimerButton.bringToFront();
         newTimerButton.setOnClickListener(v -> showCreateTimerDialog());
+        emptyStateView.setOnClickListener(v -> showCreateTimerDialog());
+        recyclerView.setOnClickListener(v -> {
+            if (adapter.getItemCount() == 0) {
+                showCreateTimerDialog();
+            }
+        });
 
         maybeRequestNotificationPermission();
         refreshTimers();
@@ -120,9 +126,12 @@ public final class MainActivity extends AppCompatActivity {
 
     private void startTimer(String timerName, int minutes, int seconds) {
         long durationMillis = ((minutes * 60L) + seconds) * 1000L;
-        TimerService.enqueueStartTimer(this, timerName, durationMillis);
+        TimerService.enqueueCreateTimer(this, timerName, durationMillis);
         refreshTimers();
-        showStartedBanner(timerName);
+        uiHandler.removeCallbacks(hideBannerRunnable);
+        timerStartedBanner.setText(timerName + " angelegt");
+        timerStartedBanner.setVisibility(View.VISIBLE);
+        uiHandler.postDelayed(hideBannerRunnable, 2500L);
     }
 
     private void showStartedBanner(String timerName) {
@@ -154,7 +163,7 @@ public final class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.dialog_new_timer_title)
                 .setView(dialogView)
                 .setNegativeButton(R.string.action_cancel, (dialogInterface, which) -> dialogInterface.dismiss())
-                .setPositiveButton(R.string.action_start_timer, null)
+                .setPositiveButton(R.string.action_create_timer, null)
                 .create();
 
         dialog.setOnShowListener(dialogInterface -> {
@@ -310,29 +319,11 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void updateTimerListHeight(int timerCount) {
-        if (timerCount <= 0) {
-            ViewGroup.LayoutParams layoutParams = recyclerView.getLayoutParams();
+        ViewGroup.LayoutParams layoutParams = recyclerView.getLayoutParams();
+        if (layoutParams.height != 0) {
+            // In ConstraintLayout, height=0 means "match constraints" and keeps items aligned to top.
             layoutParams.height = 0;
             recyclerView.setLayoutParams(layoutParams);
-            return;
         }
-
-        recyclerView.post(() -> {
-            int visibleCount = Math.min(timerCount, MAX_VISIBLE_TIMERS);
-            int itemHeight = getTimerRowHeight();
-            ViewGroup.LayoutParams layoutParams = recyclerView.getLayoutParams();
-            layoutParams.height = itemHeight * visibleCount;
-            recyclerView.setLayoutParams(layoutParams);
-        });
-    }
-
-    private int getTimerRowHeight() {
-        View firstChild = recyclerView.getChildAt(0);
-        if (firstChild != null) {
-            RecyclerView.LayoutParams params = (RecyclerView.LayoutParams) firstChild.getLayoutParams();
-            return firstChild.getHeight() + params.topMargin + params.bottomMargin;
-        }
-        float density = getResources().getDisplayMetrics().density;
-        return Math.round(FALLBACK_TIMER_ROW_HEIGHT_DP * density);
     }
 }

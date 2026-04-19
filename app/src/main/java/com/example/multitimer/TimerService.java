@@ -43,6 +43,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     static final String EXTRA_NAME = "extra_name";
     static final String EXTRA_DURATION_MILLIS = "extra_duration_millis";
     static final String EXTRA_TIMER_ID = "extra_timer_id";
+    static final String EXTRA_START_IMMEDIATELY = "extra_start_immediately";
 
     private static final String CHANNEL_RUNNING = "multitimer_running";
     private static final String CHANNEL_FINISHED = "multitimer_finished_silent";
@@ -65,7 +66,18 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.setAction(ACTION_ADD_TIMER);
         intent.putExtra(EXTRA_NAME, name);
         intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
-        startServiceBestEffort(context, intent, false);
+        intent.putExtra(EXTRA_START_IMMEDIATELY, true);
+        startServiceBestEffort(context, intent, true);
+    }
+
+    public static void enqueueCreateTimer(Context context, String name, long durationMillis) {
+        ensureTimersLoaded(context);
+        Intent intent = new Intent(context, TimerService.class);
+        intent.setAction(ACTION_ADD_TIMER);
+        intent.putExtra(EXTRA_NAME, name);
+        intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
+        intent.putExtra(EXTRA_START_IMMEDIATELY, false);
+        startServiceBestEffort(context, intent, true);
     }
 
     public static void enqueueClearCompleted(Context context) {
@@ -106,7 +118,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.putExtra(EXTRA_TIMER_ID, timerId);
         intent.putExtra(EXTRA_NAME, name);
         intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
-        startServiceBestEffort(context, intent, false);
+        startServiceBestEffort(context, intent, true);
     }
 
     public static void enqueueRestartTimer(Context context, long timerId) {
@@ -114,7 +126,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         Intent intent = new Intent(context, TimerService.class);
         intent.setAction(ACTION_RESTART_TIMER);
         intent.putExtra(EXTRA_TIMER_ID, timerId);
-        startServiceBestEffort(context, intent, false);
+        startServiceBestEffort(context, intent, true);
     }
 
     public static void ensureTimersLoaded(Context context) {
@@ -147,16 +159,19 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     }
 
     private static void startServiceBestEffort(Context context, Intent intent, boolean preferForeground) {
+        String action = intent == null ? "null" : intent.getAction();
         try {
-            if (preferForeground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ContextCompat.startForegroundService(context, intent);
-            } else {
-                context.startService(intent);
-            }
+            // Prefer a regular service start while app is in foreground; on some OEM builds
+            // this avoids flaky foreground start restrictions for user-triggered actions.
+            context.startService(intent);
         } catch (RuntimeException firstError) {
-            Log.w(TAG, "Primary service start failed, trying fallback", firstError);
+            Log.w(TAG, "Primary startService failed, trying fallback", firstError);
             try {
-                context.startService(intent);
+                if (preferForeground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ContextCompat.startForegroundService(context, intent);
+                } else {
+                    context.startService(intent);
+                }
             } catch (RuntimeException fallbackError) {
                 Log.e(TAG, "Fallback service start failed", fallbackError);
             }
@@ -232,38 +247,39 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
 
         if (intent != null) {
             try {
-                String action = intent.getAction();
-                if (ACTION_ADD_TIMER.equals(action)) {
+                String intentAction = intent.getAction();
+                if (ACTION_ADD_TIMER.equals(intentAction)) {
                     String name = intent.getStringExtra(EXTRA_NAME);
                     long durationMillis = intent.getLongExtra(EXTRA_DURATION_MILLIS, 0L);
+                    boolean startImmediately = intent.getBooleanExtra(EXTRA_START_IMMEDIATELY, true);
                     if (name != null && !name.trim().isEmpty() && durationMillis > 0L) {
-                        addTimer(name.trim(), durationMillis);
+                        addTimer(name.trim(), durationMillis, startImmediately);
                     }
-                } else if (ACTION_CANCEL_TIMER.equals(action)) {
+                } else if (ACTION_CANCEL_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
                     if (timerId > 0L) {
                         cancelTimer(timerId);
                     }
-                } else if (ACTION_CLEAR_COMPLETED.equals(action)) {
+                } else if (ACTION_CLEAR_COMPLETED.equals(intentAction)) {
                     clearCompletedTimers();
-                } else if (ACTION_DISMISS_NOTIFICATION.equals(action)) {
+                } else if (ACTION_DISMISS_NOTIFICATION.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
                     if (timerId > 0L) {
                         dismissTimerNotification(timerId);
                     }
-                } else if (ACTION_DISMISS_TIMER.equals(action)) {
+                } else if (ACTION_DISMISS_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
                     if (timerId > 0L) {
                         dismissCompletedTimer(timerId);
                     }
-                } else if (ACTION_REPLACE_TIMER.equals(action)) {
+                } else if (ACTION_REPLACE_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
                     String name = intent.getStringExtra(EXTRA_NAME);
                     long durationMillis = intent.getLongExtra(EXTRA_DURATION_MILLIS, 0L);
                     if (timerId > 0L && name != null && !name.trim().isEmpty() && durationMillis > 0L) {
                         replaceTimer(timerId, name.trim(), durationMillis);
                     }
-                } else if (ACTION_RESTART_TIMER.equals(action)) {
+                } else if (ACTION_RESTART_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
                     if (timerId > 0L) {
                         restartTimer(timerId);
@@ -334,11 +350,12 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         ttsReady = true;
     }
 
-    private void addTimer(String name, long durationMillis) {
+    private void addTimer(String name, long durationMillis, boolean startImmediately) {
         try {
             long id = NEXT_ID.getAndIncrement();
-            long endsAt = System.currentTimeMillis() + durationMillis;
-            ManagedTimer timer = new ManagedTimer(id, name, durationMillis, endsAt);
+            long now = System.currentTimeMillis();
+            long endsAt = startImmediately ? now + durationMillis : now;
+            ManagedTimer timer = new ManagedTimer(id, name, durationMillis, endsAt, startImmediately);
             synchronized (TIMERS) {
                 TIMERS.put(id, timer);
             }
@@ -347,10 +364,12 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             } catch (Exception persistError) {
                 Log.w(TAG, "Failed to persist timers after add", persistError);
             }
-            try {
-                showTimerNotification(timer, false, durationMillis, false);
-            } catch (Exception notifyError) {
-                Log.w(TAG, "Failed to show notification after add", notifyError);
+            if (startImmediately) {
+                try {
+                    showTimerNotification(timer, false, durationMillis, false);
+                } catch (Exception notifyError) {
+                    Log.w(TAG, "Failed to show notification after add", notifyError);
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to add timer", e);
@@ -403,7 +422,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         notificationManager.cancel((int) timerId);
         nextAnnouncementAt.remove(timerId);
         persistTimers();
-        addTimer(name, durationMillis);
+        addTimer(name, durationMillis, false);
     }
 
     private void dismissTimerNotification(long timerId) {
@@ -449,8 +468,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         synchronized (TIMERS) {
             ManagedTimer timer = TIMERS.get(timerId);
             if (timer != null) {
-                long endsAt = System.currentTimeMillis() + timer.getDurationMillis();
-                TIMERS.put(timerId, new ManagedTimer(timerId, timer.getName(), timer.getDurationMillis(), endsAt));
+                timer.markStarted(System.currentTimeMillis());
                 updated = true;
             }
         }
@@ -499,7 +517,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         for (ManagedTimer timer : currentTimers) {
             boolean completed = timer.isCompleted();
             long remainingMillis = completed ? 0L : timer.getRemainingMillis(now);
-            if (!timer.isCancelled() && !(timer.isTerminal() && timer.isNotificationDismissed())) {
+            if (timer.isStarted() && !timer.isCancelled() && !(timer.isTerminal() && timer.isNotificationDismissed())) {
                 showTimerNotification(timer, completed, remainingMillis, false);
             }
         }

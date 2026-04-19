@@ -4,7 +4,8 @@ final class ManagedTimer {
     private final long id;
     private final String name;
     private final long durationMillis;
-    private final long endTimeMillis;
+    private long endTimeMillis;
+    private boolean started;
     private boolean completed;
     private boolean cancelled;
     private boolean notificationDismissed;
@@ -14,20 +15,21 @@ final class ManagedTimer {
         this.name = name;
         this.durationMillis = durationMillis;
         this.endTimeMillis = endTimeMillis;
+        this.started = true;
     }
 
-    ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean completed) {
-        this(id, name, durationMillis, endTimeMillis);
+    ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean started) {
+        this.id = id;
+        this.name = name;
+        this.durationMillis = durationMillis;
+        this.endTimeMillis = endTimeMillis;
+        this.started = started;
+    }
+
+    ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean started, boolean completed, boolean cancelled, boolean notificationDismissed) {
+        this(id, name, durationMillis, endTimeMillis, started);
         this.completed = completed;
-    }
-
-    ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean completed, boolean cancelled) {
-        this(id, name, durationMillis, endTimeMillis, completed);
         this.cancelled = cancelled;
-    }
-
-    ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean completed, boolean cancelled, boolean notificationDismissed) {
-        this(id, name, durationMillis, endTimeMillis, completed, cancelled);
         this.notificationDismissed = notificationDismissed;
     }
 
@@ -36,6 +38,7 @@ final class ManagedTimer {
         this.name = other.name;
         this.durationMillis = other.durationMillis;
         this.endTimeMillis = other.endTimeMillis;
+        this.started = other.started;
         this.completed = other.completed;
         this.cancelled = other.cancelled;
         this.notificationDismissed = other.notificationDismissed;
@@ -57,6 +60,10 @@ final class ManagedTimer {
         return endTimeMillis;
     }
 
+    boolean isStarted() {
+        return started;
+    }
+
     boolean isCompleted() {
         return completed;
     }
@@ -74,30 +81,43 @@ final class ManagedTimer {
     }
 
     boolean isRunning(long now) {
-        return !isTerminal() && getRemainingMillis(now) > 0L;
+        return started && !isTerminal() && getRemainingMillis(now) > 0L;
     }
 
     long getRemainingMillis(long now) {
         if (isTerminal()) {
             return 0L;
         }
+        if (!started) {
+            return durationMillis;
+        }
         return Math.max(0L, endTimeMillis - now);
     }
 
     boolean shouldComplete(long now) {
-        return !isTerminal() && endTimeMillis <= now;
+        return started && !isTerminal() && endTimeMillis <= now;
     }
 
     void markCompleted() {
         completed = true;
         cancelled = false;
+        started = true;
         notificationDismissed = false;
     }
 
     void markCancelled() {
         cancelled = true;
         completed = false;
+        started = true;
         notificationDismissed = false;
+    }
+
+    void markStarted(long now) {
+        started = true;
+        completed = false;
+        cancelled = false;
+        notificationDismissed = false;
+        endTimeMillis = now + durationMillis;
     }
 
     void markNotificationDismissed() {

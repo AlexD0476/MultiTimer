@@ -10,6 +10,7 @@
     <string name="hint_minutes">Minuten</string>
     <string name="hint_seconds">Sekunden</string>
     <string name="action_new_timer">Neuer Timer</string>
+    <string name="action_create_timer">Timer anlegen</string>
     <string name="action_start_timer">Timer starten</string>
     <string name="action_save_timer">Speichern</string>
     <string name="action_restart_timer">Timer neu starten</string>
@@ -38,6 +39,7 @@
     <string name="error_name_required">Bitte einen Namen eingeben.</string>
     <string name="error_duration_required">Bitte eine Dauer größer als 0 setzen.</string>
     <string name="timer_status_running">LÄUFT</string>
+    <string name="timer_status_ready">BEREIT</string>
     <string name="timer_status_completed">FERTIG</string>
     <string name="timer_status_cancelled">ABGEBROCHEN</string>
     <string name="timer_remaining_done">Fertig</string>

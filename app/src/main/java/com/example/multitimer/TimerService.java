@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -19,6 +20,7 @@ import androidx.core.app.ServiceCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -62,6 +64,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     private final Runnable tickRunnable = this::tick;
     private final Runnable delayedStopRunnable = this::stopIfIdle;
     private final Map<Long, Long> nextAnnouncementAt = new LinkedHashMap<>();
+    private final ArrayDeque<Long> pendingAnnouncementQueue = new ArrayDeque<>();
+    private final Set<Long> queuedAnnouncementIds = new HashSet<>();
+    private long activeAnnouncementTimerId = -1L;
+    private String activeCompletionUtteranceId;
     private NotificationManager notificationManager;
     private TextToSpeech textToSpeech;
     private boolean ttsReady;
@@ -323,6 +329,26 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
 
         try {
             textToSpeech = new TextToSpeech(getApplicationContext(), this);
+            textToSpeech.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override
+                public void onStart(String utteranceId) {
+                }
+
+                @Override
+                public void onDone(String utteranceId) {
+                    handler.post(() -> finishActiveAnnouncement(utteranceId));
+                }
+
+                @Override
+                public void onError(String utteranceId) {
+                    handler.post(() -> failActiveAnnouncement(utteranceId));
+                }
+
+                @Override
+                public void onStop(String utteranceId, boolean interrupted) {
+                    handler.post(() -> finishActiveAnnouncement(utteranceId));
+                }
+            });
         } catch (Exception e) {
             Log.e(TAG, "Failed to initialize TextToSpeech", e);
             ttsReady = false;
@@ -416,6 +442,11 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             Log.w(TAG, "Error shutting down TextToSpeech", e);
         }
 
+        pendingAnnouncementQueue.clear();
+        queuedAnnouncementIds.clear();
+        activeAnnouncementTimerId = -1L;
+        activeCompletionUtteranceId = null;
+
         try {
             super.onDestroy();
         } catch (Exception e) {
@@ -453,6 +484,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
 
         // Keep TTS enabled even if language selection failed; some engines still speak with their own default voice.
         ttsReady = true;
+        maybeStartNextAnnouncement();
     }
 
     /**
@@ -499,6 +531,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * Entfernt alle terminalen Timer (fertig oder abgebrochen) aus Speicher und Notifications.
      */
     private void clearCompletedTimers() {
+        boolean stopActiveAnnouncement = false;
         List<Long> completedIds = new ArrayList<>();
         synchronized (TIMERS) {
             for (ManagedTimer timer : TIMERS.values()) {
@@ -513,8 +546,20 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         for (Long id : completedIds) {
             notificationManager.cancel(id.intValue());
             nextAnnouncementAt.remove(id);
+            if (removeQueuedAnnouncement(id)) {
+                stopActiveAnnouncement = true;
+            }
+        }
+
+        if (stopActiveAnnouncement && textToSpeech != null) {
+            try {
+                textToSpeech.stop();
+            } catch (Exception stopError) {
+                Log.w(TAG, "Failed to stop TTS while clearing timers", stopError);
+            }
         }
         persistTimers();
+        maybeStartNextAnnouncement();
     }
 
     /**
@@ -524,6 +569,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      */
     private void dismissCompletedTimer(long timerId) {
         boolean removed = false;
+        boolean stopActiveAnnouncement;
         synchronized (TIMERS) {
             ManagedTimer timer = TIMERS.get(timerId);
             if (timer != null && timer.isTerminal()) {
@@ -534,9 +580,18 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
 
         notificationManager.cancel((int) timerId);
         nextAnnouncementAt.remove(timerId);
+        stopActiveAnnouncement = removeQueuedAnnouncement(timerId);
 
         if (removed) {
             persistTimers();
+        }
+
+        if (stopActiveAnnouncement && textToSpeech != null) {
+            try {
+                textToSpeech.stop();
+            } catch (Exception stopError) {
+                Log.w(TAG, "Failed to stop TTS after removing completed timer", stopError);
+            }
         }
 
         tick();
@@ -555,7 +610,15 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         }
         notificationManager.cancel((int) timerId);
         nextAnnouncementAt.remove(timerId);
+        boolean stopActiveAnnouncement = removeQueuedAnnouncement(timerId);
         persistTimers();
+        if (stopActiveAnnouncement && textToSpeech != null) {
+            try {
+                textToSpeech.stop();
+            } catch (Exception stopError) {
+                Log.w(TAG, "Failed to stop TTS while replacing timer", stopError);
+            }
+        }
         addTimer(name, durationMillis, false, announcementIntervalMillis);
     }
 
@@ -566,6 +629,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      */
     private void dismissTimerNotification(long timerId) {
         boolean updated = false;
+        boolean stopActiveAnnouncement;
         synchronized (TIMERS) {
             ManagedTimer timer = TIMERS.get(timerId);
             if (timer != null && timer.isTerminal() && !timer.isNotificationDismissed()) {
@@ -576,17 +640,21 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
 
         notificationManager.cancel((int) timerId);
         nextAnnouncementAt.remove(timerId);
+        stopActiveAnnouncement = removeQueuedAnnouncement(timerId);
 
         if (updated) {
             persistTimers();
-            // Stop current and queued utterances immediately when user mutes the alarm.
-            if (textToSpeech != null) {
+            if (stopActiveAnnouncement && textToSpeech != null) {
                 try {
                     textToSpeech.stop();
                 } catch (Exception stopError) {
                     Log.w(TAG, "Failed to stop TTS after dismiss", stopError);
                 }
             }
+        }
+
+        if (!stopActiveAnnouncement) {
+            maybeStartNextAnnouncement();
         }
     }
 
@@ -937,6 +1005,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         * @param timerName Name des abgeschlossenen Timers
      */
     private boolean announceCompletion(String timerName) {
+        return announceCompletion(-1L, timerName);
+    }
+
+    private boolean announceCompletion(long timerId, String timerName) {
         if (!ttsReady || textToSpeech == null) {
             return false;
         }
@@ -947,28 +1019,35 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 normalizedName = getString(R.string.app_name);
             }
 
-                long now = System.currentTimeMillis();
-                int speakNameResult = textToSpeech.speak(
+            long now = System.currentTimeMillis();
+            String utteranceSuffix = timerId > 0L ? timerId + "-" + now : String.valueOf(now);
+            String completionUtteranceId = "timer-done-" + utteranceSuffix;
+            int speakNameResult = textToSpeech.speak(
                     normalizedName,
-                    TextToSpeech.QUEUE_ADD,
+                    TextToSpeech.QUEUE_FLUSH,
                     null,
-                    "timer-name-" + now
-                );
-                int pauseResult = textToSpeech.playSilentUtterance(
-                        15L,
+                    "timer-name-" + utteranceSuffix
+            );
+            int pauseResult = textToSpeech.playSilentUtterance(
+                    15L,
                     TextToSpeech.QUEUE_ADD,
-                    "timer-pause-" + now
-                );
-                int speakDoneResult = textToSpeech.speak(
+                    "timer-pause-" + utteranceSuffix
+            );
+            int speakDoneResult = textToSpeech.speak(
                     getString(R.string.tts_completed),
                     TextToSpeech.QUEUE_ADD,
                     null,
-                    "timer-done-" + now
-                );
+                    completionUtteranceId
+            );
 
-                return speakNameResult != TextToSpeech.ERROR
-                    && pauseResult != TextToSpeech.ERROR
-                    && speakDoneResult != TextToSpeech.ERROR;
+            if (speakNameResult == TextToSpeech.ERROR
+                    || pauseResult == TextToSpeech.ERROR
+                    || speakDoneResult == TextToSpeech.ERROR) {
+                return false;
+            }
+
+            activeCompletionUtteranceId = completionUtteranceId;
+            return true;
         } catch (Exception e) {
             Log.e(TAG, "Failed to announce completion", e);
             ttsReady = false;
@@ -983,7 +1062,17 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * @param announcementCandidates Timer mit aktiver Abschlussmeldung
      */
     private boolean handleCompletionAnnouncements(long now, List<ManagedTimer> announcementCandidates) {
-        boolean stateChanged = false;
+        announcementCandidates.sort(new Comparator<ManagedTimer>() {
+            @Override
+            public int compare(ManagedTimer left, ManagedTimer right) {
+                int byEndTime = Long.compare(left.getEndTimeMillis(), right.getEndTimeMillis());
+                if (byEndTime != 0) {
+                    return byEndTime;
+                }
+                return Long.compare(left.getId(), right.getId());
+            }
+        });
+
         Set<Long> candidateIds = new HashSet<>();
         for (ManagedTimer timer : announcementCandidates) {
             candidateIds.add(timer.getId());
@@ -996,6 +1085,8 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 iterator.remove();
             }
         }
+
+        pruneQueuedAnnouncements(candidateIds);
 
         for (ManagedTimer timer : announcementCandidates) {
             long timerId = timer.getId();
@@ -1012,20 +1103,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             long interval = current.getAnnouncementIntervalMillis();
 
             if (!current.isCompletionAnnounced()) {
-                if (announceCompletion(current.getName())) {
-                    synchronized (TIMERS) {
-                        ManagedTimer live = TIMERS.get(timerId);
-                        if (live != null && !live.isCompletionAnnounced()) {
-                            live.markCompletionAnnounced();
-                            stateChanged = true;
-                        }
-                    }
-                    if (interval > 0L) {
-                        nextAnnouncementAt.put(timerId, now + interval);
-                    } else {
-                        nextAnnouncementAt.remove(timerId);
-                    }
-                }
+                enqueueAnnouncement(timerId);
                 continue;
             }
 
@@ -1041,15 +1119,136 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             }
 
             if (now >= nextAt) {
-                if (announceCompletion(current.getName())) {
-                    nextAnnouncementAt.put(timerId, now + interval);
-                } else {
-                    nextAnnouncementAt.put(timerId, now + 1000L);
-                }
+                enqueueAnnouncement(timerId);
             }
         }
 
-        return stateChanged;
+        maybeStartNextAnnouncement();
+        return false;
+    }
+
+    private void enqueueAnnouncement(long timerId) {
+        if (timerId <= 0L) {
+            return;
+        }
+
+        if (activeAnnouncementTimerId == timerId || queuedAnnouncementIds.contains(timerId)) {
+            return;
+        }
+
+        pendingAnnouncementQueue.addLast(timerId);
+        queuedAnnouncementIds.add(timerId);
+    }
+
+    private void maybeStartNextAnnouncement() {
+        if (!ttsReady || textToSpeech == null || activeAnnouncementTimerId > 0L) {
+            return;
+        }
+
+        while (!pendingAnnouncementQueue.isEmpty()) {
+            long timerId = pendingAnnouncementQueue.removeFirst();
+            queuedAnnouncementIds.remove(timerId);
+
+            ManagedTimer timer;
+            synchronized (TIMERS) {
+                timer = TIMERS.get(timerId);
+                if (timer == null || !timer.isCompleted() || timer.isNotificationDismissed()) {
+                    continue;
+                }
+            }
+
+            activeAnnouncementTimerId = timerId;
+            if (announceCompletion(timerId, timer.getName())) {
+                long now = System.currentTimeMillis();
+                boolean persistRequired = false;
+
+                synchronized (TIMERS) {
+                    ManagedTimer live = TIMERS.get(timerId);
+                    if (live != null && live.isCompleted() && !live.isNotificationDismissed()) {
+                        if (!live.isCompletionAnnounced()) {
+                            live.markCompletionAnnounced();
+                            persistRequired = true;
+                        }
+
+                        if (live.getAnnouncementIntervalMillis() > 0L) {
+                            nextAnnouncementAt.put(timerId, now + live.getAnnouncementIntervalMillis());
+                        } else {
+                            nextAnnouncementAt.remove(timerId);
+                        }
+                    }
+                }
+
+                if (persistRequired) {
+                    persistTimers();
+                }
+                return;
+            }
+
+            activeAnnouncementTimerId = -1L;
+            activeCompletionUtteranceId = null;
+            nextAnnouncementAt.put(timerId, System.currentTimeMillis() + 1000L);
+        }
+    }
+
+    private void finishActiveAnnouncement(String utteranceId) {
+        if (utteranceId == null || !utteranceId.equals(activeCompletionUtteranceId)) {
+            return;
+        }
+
+        activeAnnouncementTimerId = -1L;
+        activeCompletionUtteranceId = null;
+        maybeStartNextAnnouncement();
+    }
+
+    private void failActiveAnnouncement(String utteranceId) {
+        if (utteranceId == null || !utteranceId.equals(activeCompletionUtteranceId)) {
+            return;
+        }
+
+        long failedTimerId = activeAnnouncementTimerId;
+        activeAnnouncementTimerId = -1L;
+        activeCompletionUtteranceId = null;
+        if (failedTimerId > 0L) {
+            nextAnnouncementAt.put(failedTimerId, System.currentTimeMillis() + 1000L);
+        }
+        maybeStartNextAnnouncement();
+    }
+
+    private boolean removeQueuedAnnouncement(long timerId) {
+        boolean removedQueued = queuedAnnouncementIds.remove(timerId);
+        if (removedQueued) {
+            pendingAnnouncementQueue.remove(timerId);
+        }
+
+        if (activeAnnouncementTimerId == timerId) {
+            activeAnnouncementTimerId = -1L;
+            activeCompletionUtteranceId = null;
+            return true;
+        }
+
+        return false;
+    }
+
+    private void pruneQueuedAnnouncements(Set<Long> validTimerIds) {
+        if (validTimerIds == null) {
+            pendingAnnouncementQueue.clear();
+            queuedAnnouncementIds.clear();
+            return;
+        }
+
+        Iterator<Long> iterator = pendingAnnouncementQueue.iterator();
+        while (iterator.hasNext()) {
+            long timerId = iterator.next();
+            if (!validTimerIds.contains(timerId)) {
+                iterator.remove();
+                queuedAnnouncementIds.remove(timerId);
+            }
+        }
+
+        if (activeAnnouncementTimerId > 0L && !validTimerIds.contains(activeAnnouncementTimerId)) {
+            activeAnnouncementTimerId = -1L;
+            activeCompletionUtteranceId = null;
+        }
     }
 
     /**

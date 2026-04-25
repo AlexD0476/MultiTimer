@@ -6,6 +6,9 @@ import android.os.Bundle;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.splashscreen.SplashScreen;
 
+/**
+ * Launcher-Activity fuer den Splashscreen mit sofortiger Weiterleitung zur MainActivity.
+ */
 public final class SplashActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {

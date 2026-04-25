@@ -106,4 +106,48 @@
             android:text="5m" />
     </LinearLayout>
 
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="@string/label_alarm_frequency"
+        android:textColor="@color/textSecondary"
+        android:textSize="14sp" />
+
+    <RadioGroup
+        android:id="@+id/dialogAlarmFrequencyGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="vertical">
+
+        <RadioButton
+            android:id="@+id/dialogAlarmFrequencySingle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/alarm_frequency_single"
+            android:textColor="@color/textPrimary" />
+
+        <RadioButton
+            android:id="@+id/dialogAlarmFrequencyEverySecond"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/alarm_frequency_every_second"
+            android:textColor="@color/textPrimary" />
+
+        <RadioButton
+            android:id="@+id/dialogAlarmFrequencyEveryThreeSeconds"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/alarm_frequency_every_three_seconds"
+            android:textColor="@color/textPrimary" />
+
+        <RadioButton
+            android:id="@+id/dialogAlarmFrequencyEveryFiveSeconds"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/alarm_frequency_every_five_seconds"
+            android:textColor="@color/textPrimary" />
+    </RadioGroup>
+
 </LinearLayout>

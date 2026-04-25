@@ -11,6 +11,9 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Persistenzschicht fuer Timerdaten auf Basis von SharedPreferences.
+ */
 final class TimerPersistence {
     private static final String TAG = "TimerPersistence";
     private static final String PREFS_NAME = "multitimer_prefs";
@@ -19,6 +22,12 @@ final class TimerPersistence {
     private TimerPersistence() {
     }
 
+    /**
+     * Laedt alle gespeicherten Timer.
+     *
+     * @param context App-Kontext
+     * @return Liste rekonstruierter Timerobjekte
+     */
     static List<ManagedTimer> load(Context context) {
         SharedPreferences preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String raw = preferences.getString(KEY_TIMERS, "[]");
@@ -33,10 +42,12 @@ final class TimerPersistence {
                         item.getString("name"),
                         item.getLong("durationMillis"),
                         item.getLong("endTimeMillis"),
-                    item.optBoolean("started", true),
+                        item.optBoolean("started", true),
+                        item.optLong("announcementIntervalMillis", ManagedTimer.DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS),
                         item.optBoolean("completed", false),
                         item.optBoolean("cancelled", false),
-                        item.optBoolean("notificationDismissed", false)
+                        item.optBoolean("notificationDismissed", false),
+                        item.optBoolean("completionAnnounced", false)
                 ));
             }
         } catch (JSONException parseError) {
@@ -47,6 +58,12 @@ final class TimerPersistence {
         return timers;
     }
 
+    /**
+     * Speichert den kompletten Timerzustand als JSON-Array.
+     *
+     * @param context App-Kontext
+     * @param timers aktuelle Timerliste
+     */
     static void save(Context context, List<ManagedTimer> timers) {
         JSONArray jsonArray = new JSONArray();
         for (ManagedTimer timer : timers) {
@@ -57,9 +74,11 @@ final class TimerPersistence {
                 item.put("durationMillis", timer.getDurationMillis());
                 item.put("endTimeMillis", timer.getEndTimeMillis());
                 item.put("started", timer.isStarted());
+                item.put("announcementIntervalMillis", timer.getAnnouncementIntervalMillis());
                 item.put("completed", timer.isCompleted());
                 item.put("cancelled", timer.isCancelled());
                 item.put("notificationDismissed", timer.isNotificationDismissed());
+                item.put("completionAnnounced", timer.isCompletionAnnounced());
                 jsonArray.put(item);
             } catch (JSONException ignored) {
             }

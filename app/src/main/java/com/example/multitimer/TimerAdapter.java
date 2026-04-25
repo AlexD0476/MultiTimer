@@ -15,7 +15,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * RecyclerView-Adapter fuer die Darstellung und Bedienung einzelner Timerkarten.
+ */
 final class TimerAdapter extends RecyclerView.Adapter<TimerAdapter.TimerViewHolder> {
+    /**
+     * Callback-Schnittstelle fuer Nutzeraktionen auf einer Timerkarte.
+     */
     interface OnTimerActionListener {
         void onRestartTimer(ManagedTimer timer);
 
@@ -35,6 +41,9 @@ final class TimerAdapter extends RecyclerView.Adapter<TimerAdapter.TimerViewHold
         this.actionListener = actionListener;
     }
 
+    /**
+     * Ersetzt die angezeigte Liste mit einem aktuellen Snapshot aus dem Service.
+     */
     void submitList(List<ManagedTimer> nextTimers) {
         timers.clear();
         timers.addAll(nextTimers);

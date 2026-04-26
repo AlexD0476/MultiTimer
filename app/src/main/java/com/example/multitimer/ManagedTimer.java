@@ -8,11 +8,13 @@ package com.example.multitimer;
  */
 final class ManagedTimer {
     static final long DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS = 5000L;
+    static final int DEFAULT_ALARM_VOLUME = 100; // 0-100 scale
 
     private final long id;
     private final String name;
     private final long durationMillis;
     private final long announcementIntervalMillis;
+    private final int alarmVolume; // 0-100 scale
     private long endTimeMillis;
     private boolean started;
     private boolean completed;
@@ -21,30 +23,35 @@ final class ManagedTimer {
     private boolean completionAnnounced;
 
     ManagedTimer(long id, String name, long durationMillis, long endTimeMillis) {
-        this(id, name, durationMillis, endTimeMillis, true, DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS);
+        this(id, name, durationMillis, endTimeMillis, true, DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS, DEFAULT_ALARM_VOLUME);
     }
 
     ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean started) {
-        this(id, name, durationMillis, endTimeMillis, started, DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS);
+        this(id, name, durationMillis, endTimeMillis, started, DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS, DEFAULT_ALARM_VOLUME);
     }
 
     ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean started, long announcementIntervalMillis) {
+        this(id, name, durationMillis, endTimeMillis, started, announcementIntervalMillis, DEFAULT_ALARM_VOLUME);
+    }
+
+    ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean started, long announcementIntervalMillis, int alarmVolume) {
         this.id = id;
         this.name = name;
         this.durationMillis = durationMillis;
         this.endTimeMillis = endTimeMillis;
         this.started = started;
         this.announcementIntervalMillis = Math.max(0L, announcementIntervalMillis);
+        this.alarmVolume = Math.max(0, Math.min(100, alarmVolume));
     }
 
     ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean started, boolean completed, boolean cancelled, boolean notificationDismissed) {
-        this(id, name, durationMillis, endTimeMillis, started, DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS, completed, cancelled, notificationDismissed, false);
+        this(id, name, durationMillis, endTimeMillis, started, DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS, DEFAULT_ALARM_VOLUME, completed, cancelled, notificationDismissed, false);
     }
 
     ManagedTimer(long id, String name, long durationMillis, long endTimeMillis, boolean started,
-                 long announcementIntervalMillis, boolean completed, boolean cancelled,
+                 long announcementIntervalMillis, int alarmVolume, boolean completed, boolean cancelled,
                  boolean notificationDismissed, boolean completionAnnounced) {
-        this(id, name, durationMillis, endTimeMillis, started, announcementIntervalMillis);
+        this(id, name, durationMillis, endTimeMillis, started, announcementIntervalMillis, alarmVolume);
         this.completed = completed;
         this.cancelled = cancelled;
         this.notificationDismissed = notificationDismissed;
@@ -56,6 +63,7 @@ final class ManagedTimer {
         this.name = other.name;
         this.durationMillis = other.durationMillis;
         this.announcementIntervalMillis = other.announcementIntervalMillis;
+        this.alarmVolume = other.alarmVolume;
         this.endTimeMillis = other.endTimeMillis;
         this.started = other.started;
         this.completed = other.completed;
@@ -78,6 +86,10 @@ final class ManagedTimer {
 
     long getAnnouncementIntervalMillis() {
         return announcementIntervalMillis;
+    }
+
+    int getAlarmVolume() {
+        return alarmVolume;
     }
 
     long getEndTimeMillis() {

@@ -1,5 +1,6 @@
 package com.example.multitimer;
 
+import android.app.AlarmManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -7,10 +8,15 @@ import android.app.Service;
 import android.content.pm.ServiceInfo;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
@@ -53,10 +59,12 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     static final String EXTRA_TIMER_ID = "extra_timer_id";
     static final String EXTRA_START_IMMEDIATELY = "extra_start_immediately";
     static final String EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS = "extra_announcement_interval_millis";
+    static final String EXTRA_ALARM_VOLUME = "extra_alarm_volume";
 
     private static final String CHANNEL_RUNNING = "multitimer_running";
     private static final String CHANNEL_FINISHED = "multitimer_finished_silent";
     private static final long STOP_DELAY_MILLIS = 4000L;
+    private static final long[] COMPLETION_VIBRATION_PATTERN = new long[]{0L, 180L, 120L, 220L};
     private static final Map<Long, ManagedTimer> TIMERS = new LinkedHashMap<>();
     private static final AtomicLong NEXT_ID = new AtomicLong(1L);
 
@@ -71,6 +79,8 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     private NotificationManager notificationManager;
     private TextToSpeech textToSpeech;
     private boolean ttsReady;
+    private AlarmManager alarmManager;
+    private PowerManager.WakeLock partialWakeLock;
 
     /**
      * Legt einen Timer an und startet ihn sofort.
@@ -84,6 +94,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     }
 
     public static void enqueueStartTimer(Context context, String name, long durationMillis, long announcementIntervalMillis) {
+        enqueueStartTimer(context, name, durationMillis, announcementIntervalMillis, ManagedTimer.DEFAULT_ALARM_VOLUME);
+    }
+
+    public static void enqueueStartTimer(Context context, String name, long durationMillis, long announcementIntervalMillis, int alarmVolume) {
         ensureTimersLoaded(context);
         Intent intent = new Intent(context, TimerService.class);
         intent.setAction(ACTION_ADD_TIMER);
@@ -91,6 +105,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
         intent.putExtra(EXTRA_START_IMMEDIATELY, true);
         intent.putExtra(EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS, Math.max(0L, announcementIntervalMillis));
+        intent.putExtra(EXTRA_ALARM_VOLUME, Math.max(0, Math.min(100, alarmVolume)));
         startServiceBestEffort(context, intent, true);
     }
 
@@ -106,6 +121,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     }
 
     public static void enqueueCreateTimer(Context context, String name, long durationMillis, long announcementIntervalMillis) {
+        enqueueCreateTimer(context, name, durationMillis, announcementIntervalMillis, ManagedTimer.DEFAULT_ALARM_VOLUME);
+    }
+
+    public static void enqueueCreateTimer(Context context, String name, long durationMillis, long announcementIntervalMillis, int alarmVolume) {
         ensureTimersLoaded(context);
         Intent intent = new Intent(context, TimerService.class);
         intent.setAction(ACTION_ADD_TIMER);
@@ -113,6 +132,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
         intent.putExtra(EXTRA_START_IMMEDIATELY, false);
         intent.putExtra(EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS, Math.max(0L, announcementIntervalMillis));
+        intent.putExtra(EXTRA_ALARM_VOLUME, Math.max(0, Math.min(100, alarmVolume)));
         startServiceBestEffort(context, intent, true);
     }
 
@@ -183,6 +203,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     }
 
     public static void enqueueReplaceTimer(Context context, long timerId, String name, long durationMillis, long announcementIntervalMillis) {
+        enqueueReplaceTimer(context, timerId, name, durationMillis, announcementIntervalMillis, ManagedTimer.DEFAULT_ALARM_VOLUME);
+    }
+
+    public static void enqueueReplaceTimer(Context context, long timerId, String name, long durationMillis, long announcementIntervalMillis, int alarmVolume) {
         ensureTimersLoaded(context);
         Intent intent = new Intent(context, TimerService.class);
         intent.setAction(ACTION_REPLACE_TIMER);
@@ -190,6 +214,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.putExtra(EXTRA_NAME, name);
         intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
         intent.putExtra(EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS, Math.max(0L, announcementIntervalMillis));
+        intent.putExtra(EXTRA_ALARM_VOLUME, Math.max(0, Math.min(100, alarmVolume)));
         startServiceBestEffort(context, intent, true);
     }
 
@@ -322,6 +347,22 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         }
 
         try {
+            alarmManager = getSystemService(AlarmManager.class);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to setup alarm manager", e);
+        }
+
+        try {
+            PowerManager powerManager = getSystemService(PowerManager.class);
+            if (powerManager != null) {
+                partialWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MultiTimer:TimerWakeLock");
+                partialWakeLock.setReferenceCounted(false);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to setup wake lock", e);
+        }
+
+        try {
             ensureTimersLoaded(this);
         } catch (Exception e) {
             Log.e(TAG, "Failed to load timers", e);
@@ -373,9 +414,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                             EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS,
                             ManagedTimer.DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS
                     );
+                    int alarmVolume = intent.getIntExtra(EXTRA_ALARM_VOLUME, ManagedTimer.DEFAULT_ALARM_VOLUME);
                     boolean startImmediately = intent.getBooleanExtra(EXTRA_START_IMMEDIATELY, true);
                     if (name != null && !name.trim().isEmpty() && durationMillis > 0L) {
-                        addTimer(name.trim(), durationMillis, startImmediately, announcementIntervalMillis);
+                        addTimer(name.trim(), durationMillis, startImmediately, announcementIntervalMillis, alarmVolume);
                     }
                 } else if (ACTION_CANCEL_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
@@ -402,8 +444,9 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                             EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS,
                             ManagedTimer.DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS
                     );
+                    int alarmVolume = intent.getIntExtra(EXTRA_ALARM_VOLUME, ManagedTimer.DEFAULT_ALARM_VOLUME);
                     if (timerId > 0L && name != null && !name.trim().isEmpty() && durationMillis > 0L) {
-                        replaceTimer(timerId, name.trim(), durationMillis, announcementIntervalMillis);
+                        replaceTimer(timerId, name.trim(), durationMillis, announcementIntervalMillis, alarmVolume);
                     }
                 } else if (ACTION_RESTART_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
@@ -431,6 +474,20 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             handler.removeCallbacksAndMessages(null);
         } catch (Exception e) {
             Log.w(TAG, "Error removing handler callbacks", e);
+        }
+
+        try {
+            cancelAllCompletionAlarms();
+        } catch (Exception e) {
+            Log.w(TAG, "Error cancelling completion alarms", e);
+        }
+
+        try {
+            if (partialWakeLock != null && partialWakeLock.isHeld()) {
+                partialWakeLock.release();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error releasing wake lock", e);
         }
 
         try {
@@ -495,6 +552,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * @param startImmediately {@code true} startet sofort, sonst Status "bereit"
      */
     private void addTimer(String name, long durationMillis, boolean startImmediately, long announcementIntervalMillis) {
+        addTimer(name, durationMillis, startImmediately, announcementIntervalMillis, ManagedTimer.DEFAULT_ALARM_VOLUME);
+    }
+
+    private void addTimer(String name, long durationMillis, boolean startImmediately, long announcementIntervalMillis, int alarmVolume) {
         try {
             long id = NEXT_ID.getAndIncrement();
             long now = System.currentTimeMillis();
@@ -505,7 +566,8 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                     durationMillis,
                     endsAt,
                     startImmediately,
-                    Math.max(0L, announcementIntervalMillis)
+                    Math.max(0L, announcementIntervalMillis),
+                    Math.max(0, Math.min(100, alarmVolume))
             );
             synchronized (TIMERS) {
                 TIMERS.put(id, timer);
@@ -605,6 +667,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * @param durationMillis neue Dauer in Millisekunden
      */
     private void replaceTimer(long timerId, String name, long durationMillis, long announcementIntervalMillis) {
+        replaceTimer(timerId, name, durationMillis, announcementIntervalMillis, ManagedTimer.DEFAULT_ALARM_VOLUME);
+    }
+
+    private void replaceTimer(long timerId, String name, long durationMillis, long announcementIntervalMillis, int alarmVolume) {
         synchronized (TIMERS) {
             TIMERS.remove(timerId);
         }
@@ -619,7 +685,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 Log.w(TAG, "Failed to stop TTS while replacing timer", stopError);
             }
         }
-        addTimer(name, durationMillis, false, announcementIntervalMillis);
+        addTimer(name, durationMillis, false, announcementIntervalMillis, alarmVolume);
     }
 
     /**
@@ -726,6 +792,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 if (timer.shouldComplete(now)) {
                     timer.markCompleted();
                     changed = true;
+                    acquireWakeLockBriefly(); // Wakelock beim Timer-Ende
                 }
                 currentTimers.add(new ManagedTimer(timer));
                 if (timer.isRunning(now)) {
@@ -752,6 +819,9 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         if (changed || announcementStateChanged) {
             persistTimers();
         }
+
+        // Schedule AlarmManager fuer Doze-Mode Zuverlassigkeit
+        scheduleCompletionAlarm();
 
         if (!runningTimers.isEmpty() || !completedWithActiveAnnouncement.isEmpty()) {
             handler.postDelayed(tickRunnable, 1000L);
@@ -789,6 +859,139 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     }
 
     /**
+     * Plant einen AlarmManager-Alarm fuer die naechste Timer-Completion.
+     * Dies stellt sicher, dass Timer auch bei Doze-Mode gemeldet werden.
+     */
+    private void scheduleCompletionAlarm() {
+        if (alarmManager == null) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long nextCompletionTime = Long.MAX_VALUE;
+        long nextTimerId = -1L;
+
+        synchronized (TIMERS) {
+            for (ManagedTimer timer : TIMERS.values()) {
+                if (timer.isRunning(now) && timer.getEndTimeMillis() < nextCompletionTime) {
+                    nextCompletionTime = timer.getEndTimeMillis();
+                    nextTimerId = timer.getId();
+                }
+            }
+        }
+
+        // Cancel alte Alarme
+        cancelAllCompletionAlarms();
+
+        if (nextTimerId < 0 || nextCompletionTime == Long.MAX_VALUE) {
+            return;
+        }
+
+        try {
+            Intent intent = new Intent(this, TimerService.class);
+            intent.setAction(ACTION_RESYNC);
+            PendingIntent pendingIntent = PendingIntent.getService(
+                    this,
+                    (int) nextTimerId,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            );
+
+            // Trigger AlarmManager setAndAllowWhileIdle - waecht das Geraet auf, auch im Doze-Mode
+            long triggerTime = nextCompletionTime + 500; // 500ms nach dem erwarteten Ende
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent);
+            } else {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent);
+            }
+
+            Log.d(TAG, "Scheduled alarm for timer " + nextTimerId + " at " + triggerTime);
+        } catch (SecurityException e) {
+            Log.e(TAG, "Failed to schedule completion alarm - missing SCHEDULE_EXACT_ALARM permission", e);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to schedule completion alarm", e);
+        }
+    }
+
+    /**
+     * Canceliert alle eingeplanten AlarmManager-Alarme.
+     */
+    private void cancelAllCompletionAlarms() {
+        if (alarmManager == null) {
+            return;
+        }
+
+        synchronized (TIMERS) {
+            for (ManagedTimer timer : TIMERS.values()) {
+                try {
+                    Intent intent = new Intent(this, TimerService.class);
+                    intent.setAction(ACTION_RESYNC);
+                    PendingIntent pendingIntent = PendingIntent.getService(
+                            this,
+                            (int) timer.getId(),
+                            intent,
+                            PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE
+                    );
+
+                    if (pendingIntent != null) {
+                        alarmManager.cancel(pendingIntent);
+                        pendingIntent.cancel();
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to cancel alarm for timer " + timer.getId(), e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Aktiviert Partial WakeLock fuer kurze Zeit waehrend kritischer Operationen.
+     */
+    private void acquireWakeLockBriefly() {
+        if (partialWakeLock != null) {
+            try {
+                if (!partialWakeLock.isHeld()) {
+                    partialWakeLock.acquire(10000); // 10 Sekunden fuer Vibration + TTS
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to acquire wake lock", e);
+            }
+        }
+    }
+
+    /**
+     * Setzt die Alarmlautstärke basierend auf dem alarmVolume eines Timers (0-100).
+     * Die Lautstärke wird auf den STREAM_ALARM gesetzt, um sicherzustellen,
+     * dass der Alarm auch bei Stummschaltung hörbar ist.
+     *
+     * @param alarmVolume Lautstärke 0-100
+     */
+    private void setAlarmVolume(int alarmVolume) {
+        try {
+            AudioManager audioManager = getSystemService(AudioManager.class);
+            if (audioManager == null) {
+                return;
+            }
+
+            // Get max volume for STREAM_ALARM
+            int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM);
+            // Map 0-100 to 0-maxVolume
+            int volumeLevel = (alarmVolume * maxVolume) / 100;
+
+            // Set volume - FLAG_SHOW_UI displays the volume UI (optional)
+            audioManager.setStreamVolume(
+                    AudioManager.STREAM_ALARM,
+                    volumeLevel,
+                    AudioManager.FLAG_SHOW_UI
+            );
+
+            Log.d(TAG, "Set alarm volume to " + alarmVolume + "% (level " + volumeLevel + "/" + maxVolume + ")");
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to set alarm volume", e);
+        }
+    }
+
+    /**
      * Erstellt die Notification-Channels fuer laufende und abgeschlossene Timer.
      */
     private void createNotificationChannels() {
@@ -807,11 +1010,18 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             NotificationChannel finishedChannel = new NotificationChannel(
                     CHANNEL_FINISHED,
                     getString(R.string.channel_finished_name),
-                NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_HIGH // Increase importance for alarm
             );
             finishedChannel.setDescription(getString(R.string.channel_finished_description));
-            finishedChannel.enableVibration(false);
-            finishedChannel.setSound(null, null);
+            finishedChannel.enableVibration(true); // Enable vibration for completion
+            
+            // Set system notification sound - bypasses mute settings
+            android.net.Uri soundUri = android.provider.Settings.System.DEFAULT_NOTIFICATION_URI;
+            android.media.AudioAttributes audioAttributes = new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build();
+            finishedChannel.setSound(soundUri, audioAttributes);
 
             if (notificationManager != null) {
                 notificationManager.createNotificationChannels(List.of(runningChannel, finishedChannel));
@@ -933,7 +1143,16 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 .setContentIntent(buildMainPendingIntent());
 
         if (completed) {
-            builder.setSilent(true);
+            // DO NOT set silent - we want the alarm to be heard
+            // .setSilent(true);  <- REMOVED to allow sound
+            
+            // Enable vibration and sound for completion
+            builder.setVibrate(COMPLETION_VIBRATION_PATTERN);
+            
+            // Set sound via notification (bypasses mute for USAGE_ALARM)
+            android.net.Uri soundUri = android.provider.Settings.System.DEFAULT_NOTIFICATION_URI;
+            builder.setSound(soundUri, android.media.AudioManager.STREAM_ALARM);
+            
             builder.setDeleteIntent(buildDismissNotificationPendingIntent(timer.getId(), (int) timer.getId()));
             builder.addAction(
                     android.R.drawable.ic_menu_close_clear_cancel,
@@ -1014,6 +1233,9 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         }
 
         try {
+            acquireWakeLockBriefly(); // Ensure device stays awake during announcement
+            triggerCompletionVibration();
+
             String normalizedName = timerName == null ? "" : timerName.trim();
             if (normalizedName.isEmpty()) {
                 normalizedName = getString(R.string.app_name);
@@ -1052,6 +1274,32 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             Log.e(TAG, "Failed to announce completion", e);
             ttsReady = false;
             return false;
+        }
+    }
+
+    private void triggerCompletionVibration() {
+        try {
+            Vibrator vibrator = null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                VibratorManager vibratorManager = getSystemService(VibratorManager.class);
+                if (vibratorManager != null) {
+                    vibrator = vibratorManager.getDefaultVibrator();
+                }
+            } else {
+                vibrator = getSystemService(Vibrator.class);
+            }
+
+            if (vibrator == null || !vibrator.hasVibrator()) {
+                return;
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(COMPLETION_VIBRATION_PATTERN, -1));
+            } else {
+                vibrator.vibrate(COMPLETION_VIBRATION_PATTERN, -1);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to trigger completion vibration", e);
         }
     }
 
@@ -1158,6 +1406,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             }
 
             activeAnnouncementTimerId = timerId;
+            
+            // Set the alarm volume for this timer before announcing
+            setAlarmVolume(timer.getAlarmVolume());
+            
             if (announceCompletion(timerId, timer.getName())) {
                 long now = System.currentTimeMillis();
                 boolean persistRequired = false;

@@ -44,6 +44,7 @@ final class TimerPersistence {
                         item.getLong("endTimeMillis"),
                         item.optBoolean("started", true),
                         item.optLong("announcementIntervalMillis", ManagedTimer.DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS),
+                        item.optInt("alarmVolume", ManagedTimer.DEFAULT_ALARM_VOLUME),
                         item.optBoolean("completed", false),
                         item.optBoolean("cancelled", false),
                         item.optBoolean("notificationDismissed", false),
@@ -75,6 +76,7 @@ final class TimerPersistence {
                 item.put("endTimeMillis", timer.getEndTimeMillis());
                 item.put("started", timer.isStarted());
                 item.put("announcementIntervalMillis", timer.getAnnouncementIntervalMillis());
+                item.put("alarmVolume", timer.getAlarmVolume());
                 item.put("completed", timer.isCompleted());
                 item.put("cancelled", timer.isCancelled());
                 item.put("notificationDismissed", timer.isNotificationDismissed());

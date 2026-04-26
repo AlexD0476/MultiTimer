@@ -155,8 +155,12 @@ public final class MainActivity extends AppCompatActivity {
         * @param seconds Sekundenanteil der Dauer
      */
     private void startTimer(String timerName, int minutes, int seconds, long announcementIntervalMillis) {
+        startTimer(timerName, minutes, seconds, announcementIntervalMillis, ManagedTimer.DEFAULT_ALARM_VOLUME);
+    }
+
+    private void startTimer(String timerName, int minutes, int seconds, long announcementIntervalMillis, int alarmVolume) {
         long durationMillis = ((minutes * 60L) + seconds) * 1000L;
-        TimerService.enqueueCreateTimer(this, timerName, durationMillis, announcementIntervalMillis);
+        TimerService.enqueueCreateTimer(this, timerName, durationMillis, announcementIntervalMillis, alarmVolume);
         refreshTimers();
         uiHandler.removeCallbacks(hideBannerRunnable);
         timerStartedBanner.setText(timerName + " angelegt");
@@ -206,11 +210,18 @@ public final class MainActivity extends AppCompatActivity {
         TextInputEditText minutesInput = dialogView.findViewById(R.id.dialogInputMinutes);
         TextInputEditText secondsInput = dialogView.findViewById(R.id.dialogInputSeconds);
         RadioGroup alarmFrequencyGroup = dialogView.findViewById(R.id.dialogAlarmFrequencyGroup);
+        com.google.android.material.slider.Slider alarmVolumeSlider = dialogView.findViewById(R.id.dialogAlarmVolumeSlider);
+        TextView alarmVolumeValue = dialogView.findViewById(R.id.dialogAlarmVolumeValue);
         MaterialButton presetThirty = dialogView.findViewById(R.id.dialogPresetThirtySeconds);
         MaterialButton presetTwoMinutes = dialogView.findViewById(R.id.dialogPresetTwoMinutes);
         MaterialButton presetFiveMinutes = dialogView.findViewById(R.id.dialogPresetFiveMinutes);
 
         selectAnnouncementFrequency(alarmFrequencyGroup, ANNOUNCE_EVERY_FIVE_SECONDS);
+
+        // Update volume display when slider changes
+        alarmVolumeSlider.addOnChangeListener((slider, value, fromUser) -> {
+            alarmVolumeValue.setText((int) value + "%");
+        });
 
         presetThirty.setOnClickListener(v -> applyPreset(minutesInput, secondsInput, 0, 30));
         presetTwoMinutes.setOnClickListener(v -> applyPreset(minutesInput, secondsInput, 2, 0));
@@ -233,6 +244,7 @@ public final class MainActivity extends AppCompatActivity {
                 int minutes = parseNumber(minutesInput);
                 int seconds = parseNumber(secondsInput);
                 long announcementIntervalMillis = getSelectedAnnouncementFrequency(alarmFrequencyGroup);
+                int alarmVolume = (int) alarmVolumeSlider.getValue();
                 long durationMillis = ((minutes * 60L) + seconds) * 1000L;
 
                 if (timerName.isEmpty()) {
@@ -249,7 +261,7 @@ public final class MainActivity extends AppCompatActivity {
 
                 nameInput.setError(null);
                 secondsInput.setError(null);
-                startTimer(timerName, minutes, seconds, announcementIntervalMillis);
+                startTimer(timerName, minutes, seconds, announcementIntervalMillis, alarmVolume);
                 dialog.dismiss();
             });
         });
@@ -330,6 +342,8 @@ public final class MainActivity extends AppCompatActivity {
         TextInputEditText minutesInput = dialogView.findViewById(R.id.dialogInputMinutes);
         TextInputEditText secondsInput = dialogView.findViewById(R.id.dialogInputSeconds);
         RadioGroup alarmFrequencyGroup = dialogView.findViewById(R.id.dialogAlarmFrequencyGroup);
+        com.google.android.material.slider.Slider alarmVolumeSlider = dialogView.findViewById(R.id.dialogAlarmVolumeSlider);
+        TextView alarmVolumeValue = dialogView.findViewById(R.id.dialogAlarmVolumeValue);
         MaterialButton presetThirty = dialogView.findViewById(R.id.dialogPresetThirtySeconds);
         MaterialButton presetTwoMinutes = dialogView.findViewById(R.id.dialogPresetTwoMinutes);
         MaterialButton presetFiveMinutes = dialogView.findViewById(R.id.dialogPresetFiveMinutes);
@@ -339,6 +353,13 @@ public final class MainActivity extends AppCompatActivity {
         minutesInput.setText(String.valueOf(totalSeconds / 60));
         secondsInput.setText(String.valueOf(totalSeconds % 60));
         selectAnnouncementFrequency(alarmFrequencyGroup, timer.getAnnouncementIntervalMillis());
+        alarmVolumeSlider.setValue(timer.getAlarmVolume());
+        alarmVolumeValue.setText(timer.getAlarmVolume() + "%");
+
+        // Update volume display when slider changes
+        alarmVolumeSlider.addOnChangeListener((slider, value, fromUser) -> {
+            alarmVolumeValue.setText((int) value + "%");
+        });
 
         presetThirty.setOnClickListener(v -> applyPreset(minutesInput, secondsInput, 0, 30));
         presetTwoMinutes.setOnClickListener(v -> applyPreset(minutesInput, secondsInput, 2, 0));
@@ -361,6 +382,7 @@ public final class MainActivity extends AppCompatActivity {
                 int minutes = parseNumber(minutesInput);
                 int seconds = parseNumber(secondsInput);
                 long announcementIntervalMillis = getSelectedAnnouncementFrequency(alarmFrequencyGroup);
+                int alarmVolume = (int) alarmVolumeSlider.getValue();
                 long durationMillis = ((minutes * 60L) + seconds) * 1000L;
 
                 if (timerName.isEmpty()) {
@@ -377,7 +399,7 @@ public final class MainActivity extends AppCompatActivity {
 
                 nameInput.setError(null);
                 secondsInput.setError(null);
-                TimerService.enqueueReplaceTimer(this, timer.getId(), timerName, durationMillis, announcementIntervalMillis);
+                TimerService.enqueueReplaceTimer(this, timer.getId(), timerName, durationMillis, announcementIntervalMillis, alarmVolume);
                 refreshTimers();
                 dialog.dismiss();
             });

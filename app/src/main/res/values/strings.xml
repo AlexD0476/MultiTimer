@@ -34,6 +34,11 @@
     <string name="dialog_delete_timer_title">Wirklich löschen?</string>
     <string name="dialog_delete_timer_message">Soll der Timer %1$s wirklich gelöscht werden?</string>
     <string name="label_alarm_frequency">Alarm-Frequenz</string>
+    <string name="label_alarm_volume">Alarmlautstärke</string>
+    <string name="alarm_frequency_none">Keine</string>
+    <string name="alarm_frequency_1s">1s</string>
+    <string name="alarm_frequency_3s">3s</string>
+    <string name="alarm_frequency_5s">5s</string>
     <string name="alarm_frequency_single">1-malig</string>
     <string name="alarm_frequency_every_second">jede Sekunde</string>
     <string name="alarm_frequency_every_three_seconds">alle 3 Sekunden</string>

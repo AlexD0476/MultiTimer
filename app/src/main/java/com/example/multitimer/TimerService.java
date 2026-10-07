@@ -21,6 +21,10 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import androidx.annotation.Nullable;
 import androidx.core.app.ServiceCompat;
 import androidx.core.app.NotificationCompat;
@@ -47,9 +51,16 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class TimerService extends Service implements TextToSpeech.OnInitListener {
     private static final String TAG = "TimerService";
     static final String ACTION_ADD_TIMER = "com.example.multitimer.ADD_TIMER";
+    static final String ACTION_START_SAVED_TIMER = "com.example.multitimer.START_SAVED_TIMER";
+    static final String ACTION_DELETE_SAVED_TIMER = "com.example.multitimer.DELETE_SAVED_TIMER";
     static final String ACTION_CANCEL_TIMER = "com.example.multitimer.CANCEL_TIMER";
     static final String ACTION_CLEAR_COMPLETED = "com.example.multitimer.CLEAR_COMPLETED";
     static final String ACTION_DISMISS_NOTIFICATION = "com.example.multitimer.DISMISS_NOTIFICATION";
+    static final String ACTION_ACKNOWLEDGE_GROUP_STEP = "com.example.multitimer.ACKNOWLEDGE_GROUP_STEP";
+    static final String ACTION_MUTE_PHASE_ANNOUNCEMENT = "com.example.multitimer.MUTE_PHASE_ANNOUNCEMENT";
+    static final String ACTION_REQUEST_CANCEL_CONFIRMATION = "com.example.multitimer.REQUEST_CANCEL_CONFIRMATION";
+    static final String ACTION_CONFIRM_CANCEL_TIMER = "com.example.multitimer.CONFIRM_CANCEL_TIMER";
+    static final String ACTION_KEEP_TIMER_RUNNING = "com.example.multitimer.KEEP_TIMER_RUNNING";
     static final String ACTION_DISMISS_TIMER = "com.example.multitimer.DISMISS_TIMER";
     static final String ACTION_REPLACE_TIMER = "com.example.multitimer.REPLACE_TIMER";
     static final String ACTION_RESTART_TIMER = "com.example.multitimer.RESTART_TIMER";
@@ -60,13 +71,22 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     static final String EXTRA_START_IMMEDIATELY = "extra_start_immediately";
     static final String EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS = "extra_announcement_interval_millis";
     static final String EXTRA_ALARM_VOLUME = "extra_alarm_volume";
+    static final String EXTRA_COMPLETION_TEXT = "extra_completion_text";
+    static final String EXTRA_TIMER_TYPE = "extra_timer_type";
+    static final String EXTRA_REPEAT_COUNT = "extra_repeat_count";
+    static final String EXTRA_WAIT_FOR_INTERVAL_CONFIRMATION = "extra_wait_for_interval_confirmation";
+    static final String EXTRA_STEPS = "extra_steps";
 
     private static final String CHANNEL_RUNNING = "multitimer_running";
     private static final String CHANNEL_FINISHED = "multitimer_finished_silent";
+    private static final String SWIPE_CONFIRMATION_TAG_PREFIX = "swipe_cancel_";
+    private static final int FOREGROUND_NOTIFICATION_ID = Integer.MAX_VALUE;
     private static final long STOP_DELAY_MILLIS = 4000L;
     private static final long[] COMPLETION_VIBRATION_PATTERN = new long[]{0L, 180L, 120L, 220L};
     private static final Map<Long, ManagedTimer> TIMERS = new LinkedHashMap<>();
+    private static final Map<Long, SavedTimer> SAVED_TIMERS = new LinkedHashMap<>();
     private static final AtomicLong NEXT_ID = new AtomicLong(1L);
+    private static boolean timersLoaded;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable tickRunnable = this::tick;
@@ -74,6 +94,8 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     private final Map<Long, Long> nextAnnouncementAt = new LinkedHashMap<>();
     private final ArrayDeque<Long> pendingAnnouncementQueue = new ArrayDeque<>();
     private final Set<Long> queuedAnnouncementIds = new HashSet<>();
+    private final Set<Long> fullScreenConfirmationPosted = new HashSet<>();
+    private final Set<Long> pendingSwipeCancellationConfirmations = new HashSet<>();
     private long activeAnnouncementTimerId = -1L;
     private String activeCompletionUtteranceId;
     private NotificationManager notificationManager;
@@ -125,6 +147,25 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     }
 
     public static void enqueueCreateTimer(Context context, String name, long durationMillis, long announcementIntervalMillis, int alarmVolume) {
+        enqueueCreateTimer(context, name, durationMillis, announcementIntervalMillis, alarmVolume, "");
+    }
+
+    public static void enqueueCreateTimer(Context context, String name, long durationMillis, long announcementIntervalMillis,
+                                          int alarmVolume, String completionText) {
+        enqueueCreateTimer(context, name, durationMillis, announcementIntervalMillis, alarmVolume, completionText,
+            TimerType.STANDARD, 0, new ArrayList<>());
+        }
+
+        public static void enqueueCreateTimer(Context context, String name, long durationMillis, long announcementIntervalMillis,
+                          int alarmVolume, String completionText, TimerType timerType,
+                          int repeatCount, List<TimerStep> steps) {
+            enqueueCreateTimer(context, name, durationMillis, announcementIntervalMillis, alarmVolume,
+                completionText, timerType, repeatCount, false, steps);
+            }
+
+            public static void enqueueCreateTimer(Context context, String name, long durationMillis, long announcementIntervalMillis,
+                              int alarmVolume, String completionText, TimerType timerType,
+                              int repeatCount, boolean waitForIntervalConfirmation, List<TimerStep> steps) {
         ensureTimersLoaded(context);
         Intent intent = new Intent(context, TimerService.class);
         intent.setAction(ACTION_ADD_TIMER);
@@ -133,6 +174,11 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.putExtra(EXTRA_START_IMMEDIATELY, false);
         intent.putExtra(EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS, Math.max(0L, announcementIntervalMillis));
         intent.putExtra(EXTRA_ALARM_VOLUME, Math.max(0, Math.min(100, alarmVolume)));
+        intent.putExtra(EXTRA_COMPLETION_TEXT, completionText == null ? "" : completionText.trim());
+        intent.putExtra(EXTRA_TIMER_TYPE, timerType.name());
+        intent.putExtra(EXTRA_REPEAT_COUNT, Math.max(0, repeatCount));
+        intent.putExtra(EXTRA_WAIT_FOR_INTERVAL_CONFIRMATION, waitForIntervalConfirmation);
+        intent.putExtra(EXTRA_STEPS, serializeSteps(steps));
         startServiceBestEffort(context, intent, true);
     }
 
@@ -176,6 +222,22 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         context.startService(intent);
     }
 
+    public static void enqueueDeleteSavedTimer(Context context, long timerId) {
+        ensureTimersLoaded(context);
+        Intent intent = new Intent(context, TimerService.class);
+        intent.setAction(ACTION_DELETE_SAVED_TIMER);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        context.startService(intent);
+    }
+
+    public static void enqueueStartSavedTimer(Context context, long timerId) {
+        ensureTimersLoaded(context);
+        Intent intent = new Intent(context, TimerService.class);
+        intent.setAction(ACTION_START_SAVED_TIMER);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        startServiceBestEffort(context, intent, true);
+    }
+
     /**
      * Markiert die Abschluss-Notification als bestaetigt und stoppt weitere Ansagen.
         *
@@ -188,6 +250,34 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.setAction(ACTION_DISMISS_NOTIFICATION);
         intent.putExtra(EXTRA_TIMER_ID, timerId);
         context.startService(intent);
+    }
+
+    public static void enqueueAcknowledgeGroupStep(Context context, long timerId) {
+        enqueueAcknowledgeTimerPhase(context, timerId);
+    }
+
+    public static void enqueueAcknowledgeTimerPhase(Context context, long timerId) {
+        ensureTimersLoaded(context);
+        Intent intent = new Intent(context, TimerService.class);
+        intent.setAction(ACTION_ACKNOWLEDGE_GROUP_STEP);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        context.startService(intent);
+    }
+
+    public static void enqueueMutePhaseAnnouncement(Context context, long timerId) {
+        ensureTimersLoaded(context);
+        Intent intent = new Intent(context, TimerService.class);
+        intent.setAction(ACTION_MUTE_PHASE_ANNOUNCEMENT);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        context.startService(intent);
+    }
+
+    public static void enqueueRefreshTimerNotification(Context context, long timerId) {
+        ensureTimersLoaded(context);
+        Intent intent = new Intent(context, TimerService.class);
+        intent.setAction(ACTION_RESYNC);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        startServiceBestEffort(context, intent, true);
     }
 
     /**
@@ -207,6 +297,26 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
     }
 
     public static void enqueueReplaceTimer(Context context, long timerId, String name, long durationMillis, long announcementIntervalMillis, int alarmVolume) {
+        enqueueReplaceTimer(context, timerId, name, durationMillis, announcementIntervalMillis, alarmVolume, "");
+    }
+
+    public static void enqueueReplaceTimer(Context context, long timerId, String name, long durationMillis,
+                                           long announcementIntervalMillis, int alarmVolume, String completionText) {
+        enqueueReplaceTimer(context, timerId, name, durationMillis, announcementIntervalMillis, alarmVolume,
+            completionText, TimerType.STANDARD, 0, new ArrayList<>());
+        }
+
+        public static void enqueueReplaceTimer(Context context, long timerId, String name, long durationMillis,
+                           long announcementIntervalMillis, int alarmVolume, String completionText,
+                           TimerType timerType, int repeatCount, List<TimerStep> steps) {
+            enqueueReplaceTimer(context, timerId, name, durationMillis, announcementIntervalMillis, alarmVolume,
+                completionText, timerType, repeatCount, false, steps);
+            }
+
+            public static void enqueueReplaceTimer(Context context, long timerId, String name, long durationMillis,
+                               long announcementIntervalMillis, int alarmVolume, String completionText,
+                               TimerType timerType, int repeatCount, boolean waitForIntervalConfirmation,
+                               List<TimerStep> steps) {
         ensureTimersLoaded(context);
         Intent intent = new Intent(context, TimerService.class);
         intent.setAction(ACTION_REPLACE_TIMER);
@@ -215,7 +325,44 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         intent.putExtra(EXTRA_DURATION_MILLIS, durationMillis);
         intent.putExtra(EXTRA_ANNOUNCEMENT_INTERVAL_MILLIS, Math.max(0L, announcementIntervalMillis));
         intent.putExtra(EXTRA_ALARM_VOLUME, Math.max(0, Math.min(100, alarmVolume)));
+        intent.putExtra(EXTRA_COMPLETION_TEXT, completionText == null ? "" : completionText.trim());
+        intent.putExtra(EXTRA_TIMER_TYPE, timerType.name());
+        intent.putExtra(EXTRA_REPEAT_COUNT, Math.max(0, repeatCount));
+        intent.putExtra(EXTRA_WAIT_FOR_INTERVAL_CONFIRMATION, waitForIntervalConfirmation);
+        intent.putExtra(EXTRA_STEPS, serializeSteps(steps));
         startServiceBestEffort(context, intent, true);
+    }
+
+    private static String serializeSteps(List<TimerStep> steps) {
+        JSONArray array = new JSONArray();
+        if (steps != null) {
+            for (TimerStep step : steps) {
+                JSONObject item = new JSONObject();
+                try {
+                    item.put("name", step.getName());
+                    item.put("durationMillis", step.getDurationMillis());
+                    item.put("completionText", step.getCompletionText());
+                    array.put(item);
+                } catch (JSONException ignored) {
+                }
+            }
+        }
+        return array.toString();
+    }
+
+    private static List<TimerStep> parseSteps(String raw) {
+        List<TimerStep> steps = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(raw == null ? "[]" : raw);
+            for (int index = 0; index < array.length(); index++) {
+                JSONObject item = array.getJSONObject(index);
+                steps.add(new TimerStep(item.optString("name", ""), item.optLong("durationMillis", 0L),
+                        item.optString("completionText", "")));
+            }
+        } catch (JSONException parseError) {
+            Log.e(TAG, "Failed to parse timer steps", parseError);
+        }
+        return steps;
     }
 
     /**
@@ -238,16 +385,19 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         * @param context App-Kontext
      */
     public static void ensureTimersLoaded(Context context) {
-        synchronized (TIMERS) {
-            if (!TIMERS.isEmpty()) {
+        synchronized (SAVED_TIMERS) {
+            if (timersLoaded) {
                 return;
             }
-            long nextId = 1L;
-            for (ManagedTimer timer : TimerPersistence.load(context.getApplicationContext())) {
-                TIMERS.put(timer.getId(), timer);
-                nextId = Math.max(nextId, timer.getId() + 1L);
+            TimerPersistence.LoadedData data = TimerPersistence.load(context.getApplicationContext());
+            for (SavedTimer timer : data.savedTimers) {
+                SAVED_TIMERS.put(timer.getId(), timer);
             }
-            NEXT_ID.set(nextId);
+            for (ManagedTimer timer : data.activeTimers) {
+                TIMERS.put(timer.getId(), timer);
+            }
+            NEXT_ID.set(data.nextId);
+            timersLoaded = true;
         }
     }
 
@@ -263,7 +413,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         long now = System.currentTimeMillis();
         synchronized (TIMERS) {
             for (ManagedTimer timer : TIMERS.values()) {
-                if (timer.isRunning(now)) {
+                if (timer.isRunning(now) || timer.isPhaseAwaitingAnnouncement()) {
                     Intent intent = new Intent(context, TimerService.class);
                     intent.setAction(ACTION_RESYNC);
                     startServiceBestEffort(context, intent, true);
@@ -305,32 +455,19 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         List<ManagedTimer> snapshot = new ArrayList<>();
         synchronized (TIMERS) {
             for (ManagedTimer timer : TIMERS.values()) {
-                snapshot.add(new ManagedTimer(timer));
+                if (!timer.isTerminal() || (timer.isCompleted() && !timer.isNotificationDismissed())) {
+                    snapshot.add(new ManagedTimer(timer));
+                }
             }
         }
-        snapshot.sort(new Comparator<ManagedTimer>() {
-            @Override
-            public int compare(ManagedTimer left, ManagedTimer right) {
-                int leftGroup = left.isCompleted() && !left.isNotificationDismissed() ? 0
-                        : (left.isTerminal() ? 2 : 1);
-                int rightGroup = right.isCompleted() && !right.isNotificationDismissed() ? 0
-                        : (right.isTerminal() ? 2 : 1);
+        return snapshot;
+    }
 
-                if (leftGroup != rightGroup) {
-                    return Integer.compare(leftGroup, rightGroup);
-                }
-
-                if (leftGroup == 1) {
-                    return Long.compare(left.getEndTimeMillis(), right.getEndTimeMillis());
-                }
-
-                int byName = left.getName().compareToIgnoreCase(right.getName());
-                if (byName != 0) {
-                    return byName;
-                }
-                return Long.compare(left.getId(), right.getId());
-            }
-        });
+    public static List<SavedTimer> getSavedTimersSnapshot() {
+        List<SavedTimer> snapshot = new ArrayList<>();
+        synchronized (SAVED_TIMERS) {
+            snapshot.addAll(SAVED_TIMERS.values());
+        }
         return snapshot;
     }
 
@@ -407,7 +544,12 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         if (intent != null) {
             try {
                 String intentAction = intent.getAction();
-                if (ACTION_ADD_TIMER.equals(intentAction)) {
+                if (ACTION_RESYNC.equals(intentAction)) {
+                    long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
+                    if (timerId > 0L) {
+                        fullScreenConfirmationPosted.remove(timerId);
+                    }
+                } else if (ACTION_ADD_TIMER.equals(intentAction)) {
                     String name = intent.getStringExtra(EXTRA_NAME);
                     long durationMillis = intent.getLongExtra(EXTRA_DURATION_MILLIS, 0L);
                     long announcementIntervalMillis = intent.getLongExtra(
@@ -415,9 +557,29 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                             ManagedTimer.DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS
                     );
                     int alarmVolume = intent.getIntExtra(EXTRA_ALARM_VOLUME, ManagedTimer.DEFAULT_ALARM_VOLUME);
+                    String completionText = intent.getStringExtra(EXTRA_COMPLETION_TEXT);
+                    TimerType timerType = TimerType.fromName(intent.getStringExtra(EXTRA_TIMER_TYPE));
+                    int repeatCount = intent.getIntExtra(EXTRA_REPEAT_COUNT, 0);
+                    boolean waitForIntervalConfirmation = intent.getBooleanExtra(EXTRA_WAIT_FOR_INTERVAL_CONFIRMATION, false);
+                    List<TimerStep> steps = parseSteps(intent.getStringExtra(EXTRA_STEPS));
                     boolean startImmediately = intent.getBooleanExtra(EXTRA_START_IMMEDIATELY, true);
                     if (name != null && !name.trim().isEmpty() && durationMillis > 0L) {
-                        addTimer(name.trim(), durationMillis, startImmediately, announcementIntervalMillis, alarmVolume);
+                        long savedTimerId = addSavedTimer(name.trim(), durationMillis, announcementIntervalMillis,
+                            alarmVolume, completionText, timerType, repeatCount,
+                            waitForIntervalConfirmation, steps);
+                        if (startImmediately) {
+                            startSavedTimer(savedTimerId);
+                        }
+                    }
+                } else if (ACTION_START_SAVED_TIMER.equals(intentAction)) {
+                    long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
+                    if (timerId > 0L) {
+                        startSavedTimer(timerId);
+                    }
+                } else if (ACTION_DELETE_SAVED_TIMER.equals(intentAction)) {
+                    long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
+                    if (timerId > 0L) {
+                        deleteSavedTimer(timerId);
                     }
                 } else if (ACTION_CANCEL_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
@@ -430,6 +592,34 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
                     if (timerId > 0L) {
                         dismissTimerNotification(timerId);
+                    }
+                } else if (ACTION_ACKNOWLEDGE_GROUP_STEP.equals(intentAction)) {
+                    long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
+                    if (timerId > 0L) {
+                        dismissTimerNotification(timerId);
+                    }
+                } else if (ACTION_MUTE_PHASE_ANNOUNCEMENT.equals(intentAction)) {
+                    long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
+                    if (timerId > 0L) {
+                        mutePhaseAnnouncement(timerId);
+                    }
+                } else if (ACTION_REQUEST_CANCEL_CONFIRMATION.equals(intentAction)) {
+                    long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
+                    if (timerId > 0L) {
+                        requestSwipeCancellationConfirmation(timerId);
+                    }
+                } else if (ACTION_CONFIRM_CANCEL_TIMER.equals(intentAction)) {
+                    long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
+                    if (timerId > 0L) {
+                        pendingSwipeCancellationConfirmations.remove(timerId);
+                        cancelTimer(timerId);
+                    }
+                } else if (ACTION_KEEP_TIMER_RUNNING.equals(intentAction)) {
+                    long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
+                    if (timerId > 0L) {
+                        pendingSwipeCancellationConfirmations.remove(timerId);
+                        cancelSwipeConfirmationNotification(timerId);
+                        tick();
                     }
                 } else if (ACTION_DISMISS_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
@@ -445,8 +635,15 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                             ManagedTimer.DEFAULT_ANNOUNCEMENT_INTERVAL_MILLIS
                     );
                     int alarmVolume = intent.getIntExtra(EXTRA_ALARM_VOLUME, ManagedTimer.DEFAULT_ALARM_VOLUME);
+                    String completionText = intent.getStringExtra(EXTRA_COMPLETION_TEXT);
+                    TimerType timerType = TimerType.fromName(intent.getStringExtra(EXTRA_TIMER_TYPE));
+                    int repeatCount = intent.getIntExtra(EXTRA_REPEAT_COUNT, 0);
+                    boolean waitForIntervalConfirmation = intent.getBooleanExtra(EXTRA_WAIT_FOR_INTERVAL_CONFIRMATION, false);
+                    List<TimerStep> steps = parseSteps(intent.getStringExtra(EXTRA_STEPS));
                     if (timerId > 0L && name != null && !name.trim().isEmpty() && durationMillis > 0L) {
-                        replaceTimer(timerId, name.trim(), durationMillis, announcementIntervalMillis, alarmVolume);
+                        replaceTimer(timerId, name.trim(), durationMillis, announcementIntervalMillis,
+                            alarmVolume, completionText, timerType, repeatCount,
+                            waitForIntervalConfirmation, steps);
                     }
                 } else if (ACTION_RESTART_TIMER.equals(intentAction)) {
                     long timerId = intent.getLongExtra(EXTRA_TIMER_ID, -1L);
@@ -517,11 +714,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         return null;
     }
 
-    /**
-     * Initialisiert die TTS-Engine und waehlt bevorzugt Deutsch als Sprache.
-        *
-        * @param status Initialisierungsstatus der TTS-Engine
-     */
+    /** Initialisiert TTS mit der aktuell ausgewaehlten App-Sprache. */
     @Override
     public void onInit(int status) {
         ttsReady = status == TextToSpeech.SUCCESS && textToSpeech != null;
@@ -529,18 +722,11 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             return;
         }
 
-        int germanResult = textToSpeech.setLanguage(Locale.GERMAN);
-        if (germanResult != TextToSpeech.LANG_MISSING_DATA && germanResult != TextToSpeech.LANG_NOT_SUPPORTED) {
-            return;
+        Locale appLocale = getResources().getConfiguration().getLocales().get(0);
+        int localeResult = textToSpeech.setLanguage(appLocale);
+        if (localeResult == TextToSpeech.LANG_MISSING_DATA || localeResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+            textToSpeech.setLanguage(Locale.getDefault());
         }
-
-        int fallbackResult = textToSpeech.setLanguage(Locale.getDefault());
-        if (fallbackResult != TextToSpeech.LANG_MISSING_DATA && fallbackResult != TextToSpeech.LANG_NOT_SUPPORTED) {
-            return;
-        }
-
-        // Keep TTS enabled even if language selection failed; some engines still speak with their own default voice.
-        ttsReady = true;
         maybeStartNextAnnouncement();
     }
 
@@ -551,42 +737,85 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * @param durationMillis Dauer des Timers in Millisekunden
      * @param startImmediately {@code true} startet sofort, sonst Status "bereit"
      */
-    private void addTimer(String name, long durationMillis, boolean startImmediately, long announcementIntervalMillis) {
-        addTimer(name, durationMillis, startImmediately, announcementIntervalMillis, ManagedTimer.DEFAULT_ALARM_VOLUME);
-    }
-
-    private void addTimer(String name, long durationMillis, boolean startImmediately, long announcementIntervalMillis, int alarmVolume) {
+    private long addSavedTimer(String name, long durationMillis, long announcementIntervalMillis,
+                               int alarmVolume, String completionText, TimerType timerType,
+                               int repeatCount, boolean waitForIntervalConfirmation, List<TimerStep> steps) {
         try {
             long id = NEXT_ID.getAndIncrement();
             long now = System.currentTimeMillis();
-            long endsAt = startImmediately ? now + durationMillis : now;
-            ManagedTimer timer = new ManagedTimer(
+            SavedTimer timer = new SavedTimer(
                     id,
                     name,
                     durationMillis,
-                    endsAt,
-                    startImmediately,
                     Math.max(0L, announcementIntervalMillis),
-                    Math.max(0, Math.min(100, alarmVolume))
+                    Math.max(0, Math.min(100, alarmVolume)),
+                    completionText,
+                    now,
+                    0L,
+                    0,
+                    timerType,
+                    repeatCount,
+                    waitForIntervalConfirmation,
+                    steps
+            );
+            synchronized (SAVED_TIMERS) {
+                SAVED_TIMERS.put(id, timer);
+            }
+            persistTimers();
+            return id;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to save timer", e);
+            return -1L;
+        }
+    }
+
+    private void startSavedTimer(long savedTimerId) {
+        SavedTimer savedTimer;
+        ManagedTimer timer;
+        long now = System.currentTimeMillis();
+        synchronized (SAVED_TIMERS) {
+            savedTimer = SAVED_TIMERS.get(savedTimerId);
+            if (savedTimer == null) {
+                return;
+            }
+            savedTimer = savedTimer.recordStarted(now);
+            SAVED_TIMERS.put(savedTimerId, savedTimer);
+            long timerId = NEXT_ID.getAndIncrement();
+                long firstDuration = savedTimer.getTimerType() == TimerType.GROUP && !savedTimer.getSteps().isEmpty()
+                    ? savedTimer.getSteps().get(0).getDurationMillis()
+                    : savedTimer.getDurationMillis();
+            timer = new ManagedTimer(
+                    timerId,
+                    savedTimerId,
+                    savedTimer.getName(),
+                    firstDuration,
+                    now,
+                    now + firstDuration,
+                    savedTimer.getAnnouncementIntervalMillis(),
+                    savedTimer.getAlarmVolume(),
+                    savedTimer.getCompletionText(),
+                    savedTimer.getTimerType(),
+                    savedTimer.getRepeatCount(),
+                    savedTimer.waitsForIntervalConfirmation(),
+                    1,
+                    0,
+                    savedTimer.getSteps(),
+                    false
             );
             synchronized (TIMERS) {
-                TIMERS.put(id, timer);
+                TIMERS.put(timerId, timer);
             }
-            try {
-                persistTimers();
-            } catch (Exception persistError) {
-                Log.w(TAG, "Failed to persist timers after add", persistError);
-            }
-            if (startImmediately) {
-                try {
-                    showTimerNotification(timer, false, durationMillis, false);
-                } catch (Exception notifyError) {
-                    Log.w(TAG, "Failed to show notification after add", notifyError);
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to add timer", e);
         }
+        persistTimers();
+        showTimerNotification(timer, false, timer.getDurationMillis(), false);
+        tick();
+    }
+
+    private void deleteSavedTimer(long timerId) {
+        synchronized (SAVED_TIMERS) {
+            SAVED_TIMERS.remove(timerId);
+        }
+        persistTimers();
     }
 
     /**
@@ -607,7 +836,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         }
         for (Long id : completedIds) {
             notificationManager.cancel(id.intValue());
+            cancelSwipeConfirmationNotification(id);
+            pendingSwipeCancellationConfirmations.remove(id);
             nextAnnouncementAt.remove(id);
+            fullScreenConfirmationPosted.remove(id);
             if (removeQueuedAnnouncement(id)) {
                 stopActiveAnnouncement = true;
             }
@@ -641,7 +873,10 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         }
 
         notificationManager.cancel((int) timerId);
+        cancelSwipeConfirmationNotification(timerId);
+        pendingSwipeCancellationConfirmations.remove(timerId);
         nextAnnouncementAt.remove(timerId);
+        fullScreenConfirmationPosted.remove(timerId);
         stopActiveAnnouncement = removeQueuedAnnouncement(timerId);
 
         if (removed) {
@@ -666,26 +901,22 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * @param name neuer Name
      * @param durationMillis neue Dauer in Millisekunden
      */
-    private void replaceTimer(long timerId, String name, long durationMillis, long announcementIntervalMillis) {
-        replaceTimer(timerId, name, durationMillis, announcementIntervalMillis, ManagedTimer.DEFAULT_ALARM_VOLUME);
-    }
-
-    private void replaceTimer(long timerId, String name, long durationMillis, long announcementIntervalMillis, int alarmVolume) {
-        synchronized (TIMERS) {
-            TIMERS.remove(timerId);
-        }
-        notificationManager.cancel((int) timerId);
-        nextAnnouncementAt.remove(timerId);
-        boolean stopActiveAnnouncement = removeQueuedAnnouncement(timerId);
-        persistTimers();
-        if (stopActiveAnnouncement && textToSpeech != null) {
-            try {
-                textToSpeech.stop();
-            } catch (Exception stopError) {
-                Log.w(TAG, "Failed to stop TTS while replacing timer", stopError);
+    private void replaceTimer(long timerId, String name, long durationMillis, long announcementIntervalMillis,
+                              int alarmVolume, String completionText, TimerType timerType,
+                              int repeatCount, boolean waitForIntervalConfirmation, List<TimerStep> steps) {
+        boolean replaced = false;
+        synchronized (SAVED_TIMERS) {
+            SavedTimer existing = SAVED_TIMERS.get(timerId);
+            if (existing != null) {
+                SAVED_TIMERS.put(timerId, existing.withConfiguration(name, durationMillis,
+                    announcementIntervalMillis, alarmVolume, completionText, timerType, repeatCount,
+                    waitForIntervalConfirmation, steps));
+                replaced = true;
             }
         }
-        addTimer(name, durationMillis, false, announcementIntervalMillis, alarmVolume);
+        if (replaced) {
+            persistTimers();
+        }
     }
 
     /**
@@ -694,21 +925,32 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * @param timerId eindeutige Timer-ID
      */
     private void dismissTimerNotification(long timerId) {
-        boolean updated = false;
+        pendingSwipeCancellationConfirmations.remove(timerId);
+        cancelSwipeConfirmationNotification(timerId);
+        boolean removed = false;
+        boolean advanced = false;
         boolean stopActiveAnnouncement;
         synchronized (TIMERS) {
             ManagedTimer timer = TIMERS.get(timerId);
-            if (timer != null && timer.isTerminal() && !timer.isNotificationDismissed()) {
-                timer.markNotificationDismissed();
-                updated = true;
+            if (timer != null && timer.isCompleted()) {
+                TIMERS.remove(timerId);
+                removed = true;
+            } else if (timer != null && timer.isPhaseAwaitingAnnouncement()) {
+                if (timer.getTimerType() == TimerType.GROUP && !timer.hasNextGroupStep()) {
+                    timer.markCompleted();
+                    advanced = true;
+                } else {
+                    advanced = timer.advanceAfterAnnouncement(System.currentTimeMillis());
+                }
             }
         }
 
         notificationManager.cancel((int) timerId);
         nextAnnouncementAt.remove(timerId);
+        fullScreenConfirmationPosted.remove(timerId);
         stopActiveAnnouncement = removeQueuedAnnouncement(timerId);
 
-        if (updated) {
+        if (removed || advanced) {
             persistTimers();
             if (stopActiveAnnouncement && textToSpeech != null) {
                 try {
@@ -722,6 +964,32 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         if (!stopActiveAnnouncement) {
             maybeStartNextAnnouncement();
         }
+        if (advanced) {
+            tick();
+        }
+    }
+
+    private void mutePhaseAnnouncement(long timerId) {
+        boolean muted = false;
+        synchronized (TIMERS) {
+            ManagedTimer timer = TIMERS.get(timerId);
+            if (timer != null && timer.requiresPhaseConfirmation() && !timer.isPhaseAnnouncementMuted()) {
+                timer.mutePhaseAnnouncement();
+                muted = true;
+            }
+        }
+        if (!muted) {
+            return;
+        }
+
+        nextAnnouncementAt.remove(timerId);
+        boolean stopActiveAnnouncement = removeQueuedAnnouncement(timerId);
+        if (stopActiveAnnouncement && textToSpeech != null) {
+            textToSpeech.stop();
+        }
+        persistTimers();
+        tick();
+        maybeStartNextAnnouncement();
     }
 
     /**
@@ -730,23 +998,40 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * @param timerId eindeutige Timer-ID
      */
     private void cancelTimer(long timerId) {
-        boolean updated = false;
+        pendingSwipeCancellationConfirmations.remove(timerId);
+        cancelSwipeConfirmationNotification(timerId);
+        boolean removed;
         synchronized (TIMERS) {
-            ManagedTimer timer = TIMERS.get(timerId);
-            if (timer != null && !timer.isTerminal()) {
-                timer.markCancelled();
-                updated = true;
-            }
+            removed = TIMERS.remove(timerId) != null;
         }
 
         notificationManager.cancel((int) timerId);
         nextAnnouncementAt.remove(timerId);
-
-        if (updated) {
+        fullScreenConfirmationPosted.remove(timerId);
+        boolean stopActiveAnnouncement = removeQueuedAnnouncement(timerId);
+        if (removed) {
             persistTimers();
         }
-
+        if (stopActiveAnnouncement && textToSpeech != null) {
+            textToSpeech.stop();
+        }
         tick();
+    }
+
+    private void requestSwipeCancellationConfirmation(long timerId) {
+        synchronized (TIMERS) {
+            ManagedTimer timer = TIMERS.get(timerId);
+            if (timer == null || timer.isCancelled()) {
+                return;
+            }
+        }
+        pendingSwipeCancellationConfirmations.add(timerId);
+    }
+
+    private void cancelSwipeConfirmationNotification(long timerId) {
+        if (notificationManager != null) {
+            notificationManager.cancel(SWIPE_CONFIRMATION_TAG_PREFIX + timerId, 0);
+        }
     }
 
     /**
@@ -755,21 +1040,52 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      * @param timerId eindeutige Timer-ID
      */
     private void restartTimer(long timerId) {
-        boolean updated = false;
+        ManagedTimer previousRun;
         synchronized (TIMERS) {
-            ManagedTimer timer = TIMERS.get(timerId);
-            if (timer != null) {
-                timer.markStarted(System.currentTimeMillis());
-                updated = true;
-            }
+            previousRun = TIMERS.get(timerId);
+        }
+        if (previousRun == null) {
+            startSavedTimer(timerId);
+            return;
         }
 
-        if (updated) {
-            persistTimers();
+        boolean hasSavedTimer;
+        synchronized (SAVED_TIMERS) {
+            hasSavedTimer = SAVED_TIMERS.containsKey(previousRun.getSourceSavedTimerId());
+        }
+        if (hasSavedTimer) {
+            startSavedTimer(previousRun.getSourceSavedTimerId());
+            return;
         }
 
-        nextAnnouncementAt.remove(timerId);
-
+        long now = System.currentTimeMillis();
+        long newId = NEXT_ID.getAndIncrement();
+        long initialDuration = previousRun.getTimerType() == TimerType.GROUP && !previousRun.getSteps().isEmpty()
+            ? previousRun.getSteps().get(0).getDurationMillis()
+            : previousRun.getDurationMillis();
+        ManagedTimer restarted = new ManagedTimer(
+                newId,
+                previousRun.getSourceSavedTimerId(),
+                previousRun.getName(),
+                initialDuration,
+                now,
+                now + initialDuration,
+                previousRun.getAnnouncementIntervalMillis(),
+                previousRun.getAlarmVolume(),
+                previousRun.getCompletionText(),
+                previousRun.getTimerType(),
+                previousRun.getRepeatCount(),
+                previousRun.waitsForIntervalConfirmation(),
+                1,
+                0,
+                previousRun.getSteps(),
+                false
+        );
+        synchronized (TIMERS) {
+            TIMERS.put(newId, restarted);
+        }
+        persistTimers();
+        showTimerNotification(restarted, false, restarted.getDurationMillis(), false);
         tick();
     }
 
@@ -790,7 +1106,11 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         synchronized (TIMERS) {
             for (ManagedTimer timer : TIMERS.values()) {
                 if (timer.shouldComplete(now)) {
-                    timer.markCompleted();
+                    if (timer.hasNextPhaseAfterCompletion()) {
+                        timer.markPhaseAwaitingAnnouncement();
+                    } else {
+                        timer.markCompleted();
+                    }
                     changed = true;
                     acquireWakeLockBriefly(); // Wakelock beim Timer-Ende
                 }
@@ -798,7 +1118,8 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 if (timer.isRunning(now)) {
                     runningTimers.add(new ManagedTimer(timer));
                 }
-                if (timer.isCompleted() && !timer.isNotificationDismissed()) {
+                if ((timer.isCompleted() || timer.isPhaseAwaitingAnnouncement())
+                        && !timer.isNotificationDismissed()) {
                     completedWithActiveAnnouncement.add(new ManagedTimer(timer));
                 }
             }
@@ -807,7 +1128,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         updateForegroundNotification(runningTimers, completedWithActiveAnnouncement, now);
 
         for (ManagedTimer timer : currentTimers) {
-            boolean completed = timer.isCompleted();
+            boolean completed = timer.isCompleted() || timer.isPhaseAwaitingAnnouncement();
             long remainingMillis = completed ? 0L : timer.getRemainingMillis(now);
             if (timer.isStarted() && !timer.isCancelled() && !(timer.isTerminal() && timer.isNotificationDismissed())) {
                 showTimerNotification(timer, completed, remainingMillis, false);
@@ -839,11 +1160,11 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         synchronized (TIMERS) {
             long now = System.currentTimeMillis();
             for (ManagedTimer timer : TIMERS.values()) {
-                if (timer.isRunning(now)) {
+                if (timer.isRunning(now) || timer.isPhaseAwaitingAnnouncement()) {
                     hasRunningTimers = true;
                     break;
                 }
-                if (timer.isCompleted() && !timer.isNotificationDismissed()) {
+                if ((timer.isCompleted() || timer.isPhaseAwaitingAnnouncement()) && !timer.isNotificationDismissed()) {
                     hasPendingAnnouncements = true;
                 }
             }
@@ -1031,12 +1352,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         }
     }
 
-    /**
-     * Setzt die Foreground-Notification auf Basis des naechsten laufenden Timers.
-     *
-     * @param runningTimers aktuell laufende Timer
-     * @param now aktuelle Zeit in Millisekunden
-     */
+    /** Haelt den Service mit einer separaten Notification aktiv, damit Timer-Notifications wischbar bleiben. */
     private void updateForegroundNotification(
             List<ManagedTimer> runningTimers,
             List<ManagedTimer> completedWithActiveAnnouncement,
@@ -1047,30 +1363,21 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         }
 
         try {
-            ManagedTimer foregroundTimer;
-            boolean completedForForeground;
-            long remainingMillis;
-
-            if (!runningTimers.isEmpty()) {
-                foregroundTimer = runningTimers.get(0);
-                completedForForeground = false;
-                remainingMillis = foregroundTimer.getRemainingMillis(now);
-            } else {
-                foregroundTimer = completedWithActiveAnnouncement.get(0);
-                completedForForeground = true;
-                remainingMillis = 0L;
-            }
-
-            NotificationCompat.Builder builder = buildTimerNotification(
-                    foregroundTimer,
-                    completedForForeground,
-                    remainingMillis
-            );
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_RUNNING)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(getString(R.string.app_name))
+                    .setContentText(getString(R.string.foreground_timer_service_active))
+                    .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                    .setPriority(NotificationCompat.PRIORITY_MIN)
+                    .setOngoing(true)
+                    .setOnlyAlertOnce(true)
+                    .setSilent(true)
+                    .setContentIntent(buildMainPendingIntent());
             
             try {
                 ServiceCompat.startForeground(
                         this,
-                        (int) foregroundTimer.getId(),
+                        FOREGROUND_NOTIFICATION_ID,
                         builder.build(),
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
                 );
@@ -1093,12 +1400,26 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      */
     private void showTimerNotification(ManagedTimer timer, boolean completed, long remainingMillis, boolean skipNotify) {
         try {
-            NotificationCompat.Builder builder = buildTimerNotification(timer, completed, remainingMillis);
+            boolean includeFullScreenIntent = timer.requiresPhaseConfirmation()
+                    && !fullScreenConfirmationPosted.contains(timer.getId());
+            NotificationCompat.Builder builder = buildTimerNotification(
+                    timer, completed, remainingMillis, includeFullScreenIntent);
+            boolean notificationPosted = false;
 
             if (!skipNotify) {
                 try {
                     if (notificationManager != null) {
+                        if (pendingSwipeCancellationConfirmations.contains(timer.getId())) {
+                            notificationManager.cancel((int) timer.getId());
+                            notificationManager.notify(
+                                    SWIPE_CONFIRMATION_TAG_PREFIX + timer.getId(),
+                                    0,
+                                    builder.build()
+                            );
+                            return;
+                        }
                         notificationManager.notify((int) timer.getId(), builder.build());
+                        notificationPosted = true;
                     }
                 } catch (Exception notifyError) {
                     Log.e(TAG, "Unable to post timer notification", notifyError);
@@ -1106,11 +1427,15 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                     try {
                         if (notificationManager != null) {
                             notificationManager.notify((int) timer.getId(), builder.build());
+                            notificationPosted = true;
                         }
                     } catch (Exception fallbackNotify) {
                         Log.e(TAG, "Fallback notification post also failed", fallbackNotify);
                     }
                 }
+            }
+            if (notificationPosted && includeFullScreenIntent) {
+                fullScreenConfirmationPosted.add(timer.getId());
             }
         } catch (Exception e) {
             Log.e(TAG, "Fatal error in showTimerNotification", e);
@@ -1125,7 +1450,36 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         * @param remainingMillis Restzeit in Millisekunden (bei laufendem Timer)
         * @return konfigurierte Notification fuer den Timerzustand
      */
-    private NotificationCompat.Builder buildTimerNotification(ManagedTimer timer, boolean completed, long remainingMillis) {
+    private NotificationCompat.Builder buildTimerNotification(ManagedTimer timer, boolean completed, long remainingMillis,
+                                                               boolean includeFullScreenIntent) {
+        if (pendingSwipeCancellationConfirmations.contains(timer.getId())) {
+            String confirmationText = getString(R.string.dialog_cancel_timer_message, timer.getName());
+            return new NotificationCompat.Builder(this, CHANNEL_RUNNING)
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setContentTitle(getString(R.string.dialog_cancel_timer_title))
+                .setContentText(confirmationText)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(confirmationText))
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setOngoing(true)
+                .setAutoCancel(false)
+                .setOnlyAlertOnce(true)
+                .setContentIntent(buildMainPendingIntent())
+                .addAction(
+                    R.drawable.ic_ui_cancel,
+                    getString(R.string.action_cancel_timer),
+                    buildSwipeCancellationActionPendingIntent(timer.getId(), ACTION_CONFIRM_CANCEL_TIMER,
+                        600000 + (int) timer.getId())
+                )
+                .addAction(
+                    R.drawable.ic_ui_play,
+                    getString(R.string.action_keep_running),
+                    buildSwipeCancellationActionPendingIntent(timer.getId(), ACTION_KEEP_TIMER_RUNNING,
+                        700000 + (int) timer.getId())
+                );
+        }
+
+        boolean awaitingConfirmation = timer.requiresPhaseConfirmation();
         String channelId = completed ? CHANNEL_FINISHED : CHANNEL_RUNNING;
         String contentText = completed
                 ? getString(R.string.timer_notification_completed)
@@ -1136,11 +1490,45 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 .setContentTitle(timer.getName())
                 .setContentText(contentText)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(contentText))
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setOngoing(!completed)
-                .setAutoCancel(completed)
-                .setOnlyAlertOnce(!completed)
+            .setPriority(awaitingConfirmation ? NotificationCompat.PRIORITY_MAX : NotificationCompat.PRIORITY_LOW)
+            .setCategory(awaitingConfirmation ? NotificationCompat.CATEGORY_ALARM : NotificationCompat.CATEGORY_STATUS)
+            .setOngoing(false)
+                .setAutoCancel(completed && !awaitingConfirmation)
+                .setOnlyAlertOnce(true)
+            .setDeleteIntent(buildSwipeConfirmationPendingIntent(timer.getId()))
                 .setContentIntent(buildMainPendingIntent());
+
+        if (awaitingConfirmation) {
+            String phaseActionLabel = timer.getTimerType() == TimerType.GROUP
+                ? (timer.hasNextGroupStep()
+                    ? getString(R.string.action_confirm_next_group_step)
+                    : getString(R.string.action_finish_timer_group))
+                : getString(R.string.action_confirm_next_interval);
+                if (includeFullScreenIntent) {
+                builder.setFullScreenIntent(
+                    buildTimerAlertPendingIntent(timer.getId(), TimerAlertActivity.ACTION_CONFIRM_PHASE,
+                        100000 + (int) timer.getId()),
+                    true
+                );
+                }
+            builder.addAction(
+                R.drawable.ic_ui_play,
+                phaseActionLabel,
+                buildAcknowledgeTimerPhasePendingIntent(timer.getId(), 200000 + (int) timer.getId())
+            );
+            builder.addAction(
+                R.drawable.ic_ui_cancel,
+                getString(R.string.action_cancel_timer),
+                buildTimerAlertPendingIntent(timer.getId(), TimerAlertActivity.ACTION_CONFIRM_SWIPE, 300000 + (int) timer.getId())
+            );
+            if (!timer.isPhaseAnnouncementMuted()) {
+                builder.addAction(
+                    android.R.drawable.ic_lock_silent_mode,
+                    getString(R.string.action_mute_phase_announcement),
+                    buildMutePhaseAnnouncementPendingIntent(timer.getId(), 500000 + (int) timer.getId())
+                );
+            }
+        }
 
         if (completed) {
             // DO NOT set silent - we want the alarm to be heard
@@ -1153,15 +1541,77 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             android.net.Uri soundUri = android.provider.Settings.System.DEFAULT_NOTIFICATION_URI;
             builder.setSound(soundUri, android.media.AudioManager.STREAM_ALARM);
             
-            builder.setDeleteIntent(buildDismissNotificationPendingIntent(timer.getId(), (int) timer.getId()));
-            builder.addAction(
+                if (!awaitingConfirmation) {
+                builder.addAction(
                     android.R.drawable.ic_menu_close_clear_cancel,
                     getString(R.string.timer_notification_dismiss_action),
                     buildDismissNotificationPendingIntent(timer.getId(), 200000 + (int) timer.getId())
-            );
+                );
+                }
         }
 
         return builder;
+    }
+
+    private PendingIntent buildSwipeConfirmationPendingIntent(long timerId) {
+        Intent intent = new Intent(this, TimerService.class);
+        intent.setAction(ACTION_REQUEST_CANCEL_CONFIRMATION);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        return PendingIntent.getService(
+            this,
+            400000 + (int) timerId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        }
+
+        private PendingIntent buildSwipeCancellationActionPendingIntent(long timerId, String action, int requestCode) {
+        Intent intent = new Intent(this, TimerService.class);
+        intent.setAction(action);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        return PendingIntent.getService(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
+    private PendingIntent buildAcknowledgeTimerPhasePendingIntent(long timerId, int requestCode) {
+        Intent intent = new Intent(this, TimerService.class);
+        intent.setAction(ACTION_ACKNOWLEDGE_GROUP_STEP);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        return PendingIntent.getService(
+                this,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
+    private PendingIntent buildMutePhaseAnnouncementPendingIntent(long timerId, int requestCode) {
+        Intent intent = new Intent(this, TimerService.class);
+        intent.setAction(ACTION_MUTE_PHASE_ANNOUNCEMENT);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        return PendingIntent.getService(
+                this,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
+    private PendingIntent buildTimerAlertPendingIntent(long timerId, String action, int requestCode) {
+        Intent intent = new Intent(this, TimerAlertActivity.class);
+        intent.setAction(action);
+        intent.putExtra(EXTRA_TIMER_ID, timerId);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return PendingIntent.getActivity(
+                this,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
     }
 
     /**
@@ -1218,16 +1668,8 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
         );
     }
 
-    /**
-     * Spricht den Abschluss eines Timers ueber TTS aus.
-        *
-        * @param timerName Name des abgeschlossenen Timers
-     */
-    private boolean announceCompletion(String timerName) {
-        return announceCompletion(-1L, timerName);
-    }
-
-    private boolean announceCompletion(long timerId, String timerName) {
+     /** Spricht ausschliesslich den pro Timer konfigurierten Abschlusstext aus. */
+     private boolean announceCompletion(long timerId, String completionText) {
         if (!ttsReady || textToSpeech == null) {
             return false;
         }
@@ -1236,36 +1678,39 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             acquireWakeLockBriefly(); // Ensure device stays awake during announcement
             triggerCompletionVibration();
 
-            String normalizedName = timerName == null ? "" : timerName.trim();
-            if (normalizedName.isEmpty()) {
-                normalizedName = getString(R.string.app_name);
-            }
-
             long now = System.currentTimeMillis();
             String utteranceSuffix = timerId > 0L ? timerId + "-" + now : String.valueOf(now);
             String completionUtteranceId = "timer-done-" + utteranceSuffix;
-            int speakNameResult = textToSpeech.speak(
-                    normalizedName,
-                    TextToSpeech.QUEUE_FLUSH,
-                    null,
-                    "timer-name-" + utteranceSuffix
-            );
-            int pauseResult = textToSpeech.playSilentUtterance(
-                    15L,
-                    TextToSpeech.QUEUE_ADD,
-                    "timer-pause-" + utteranceSuffix
-            );
-            int speakDoneResult = textToSpeech.speak(
-                    getString(R.string.tts_completed),
-                    TextToSpeech.QUEUE_ADD,
-                    null,
-                    completionUtteranceId
-            );
+            String spokenCompletionText = completionText == null || completionText.trim().isEmpty()
+                    ? getString(R.string.tts_completed)
+                    : completionText.trim();
+            String[] words = spokenCompletionText.split("\\s+");
+            if (words.length > 1) {
+                StringBuilder precedingText = new StringBuilder();
+                for (int index = 0; index < words.length - 1; index++) {
+                    if (index > 0) {
+                        precedingText.append(' ');
+                    }
+                    precedingText.append(words[index]);
+                }
 
-            if (speakNameResult == TextToSpeech.ERROR
-                    || pauseResult == TextToSpeech.ERROR
-                    || speakDoneResult == TextToSpeech.ERROR) {
-                return false;
+                int precedingResult = textToSpeech.speak(
+                        precedingText.toString(), TextToSpeech.QUEUE_FLUSH, null,
+                        "timer-text-prefix-" + utteranceSuffix);
+                int pauseResult = textToSpeech.playSilentUtterance(
+                        100L, TextToSpeech.QUEUE_ADD, "timer-text-pause-" + utteranceSuffix);
+                int finalWordResult = textToSpeech.speak(
+                        words[words.length - 1], TextToSpeech.QUEUE_ADD, null, completionUtteranceId);
+                if (precedingResult == TextToSpeech.ERROR || pauseResult == TextToSpeech.ERROR
+                        || finalWordResult == TextToSpeech.ERROR) {
+                    return false;
+                }
+            } else {
+                int speakResult = textToSpeech.speak(
+                        spokenCompletionText, TextToSpeech.QUEUE_FLUSH, null, completionUtteranceId);
+                if (speakResult == TextToSpeech.ERROR) {
+                    return false;
+                }
             }
 
             activeCompletionUtteranceId = completionUtteranceId;
@@ -1343,12 +1788,19 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 current = TIMERS.get(timerId);
             }
 
-            if (current == null || !current.isCompleted() || current.isNotificationDismissed()) {
+                if (current == null || (!current.isCompleted() && !current.isPhaseAwaitingAnnouncement())
+                    || current.isNotificationDismissed() || current.isPhaseAnnouncementMuted()) {
                 nextAnnouncementAt.remove(timerId);
                 continue;
             }
 
-            long interval = current.getAnnouncementIntervalMillis();
+                if (activeAnnouncementTimerId == timerId) {
+                    continue;
+                }
+
+                long interval = current.repeatsCompletionAnnouncement()
+                    ? current.getAnnouncementIntervalMillis()
+                    : 0L;
 
             if (!current.isCompletionAnnounced()) {
                 enqueueAnnouncement(timerId);
@@ -1400,7 +1852,8 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             ManagedTimer timer;
             synchronized (TIMERS) {
                 timer = TIMERS.get(timerId);
-                if (timer == null || !timer.isCompleted() || timer.isNotificationDismissed()) {
+                if (timer == null || (!timer.isCompleted() && !timer.isPhaseAwaitingAnnouncement())
+                    || timer.isNotificationDismissed() || timer.isPhaseAnnouncementMuted()) {
                     continue;
                 }
             }
@@ -1408,25 +1861,22 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             activeAnnouncementTimerId = timerId;
             
             // Set the alarm volume for this timer before announcing
-            setAlarmVolume(timer.getAlarmVolume());
+            if (AppSettings.forceAlarmSoundEnabled(this)) {
+                setAlarmVolume(timer.getAlarmVolume());
+            }
             
-            if (announceCompletion(timerId, timer.getName())) {
-                long now = System.currentTimeMillis();
+            if (announceCompletion(timerId, timer.getCompletionText())) {
                 boolean persistRequired = false;
 
                 synchronized (TIMERS) {
                     ManagedTimer live = TIMERS.get(timerId);
-                    if (live != null && live.isCompleted() && !live.isNotificationDismissed()) {
+                        if (live != null && (live.isCompleted() || live.isPhaseAwaitingAnnouncement())
+                            && !live.isNotificationDismissed()) {
                         if (!live.isCompletionAnnounced()) {
                             live.markCompletionAnnounced();
                             persistRequired = true;
                         }
 
-                        if (live.getAnnouncementIntervalMillis() > 0L) {
-                            nextAnnouncementAt.put(timerId, now + live.getAnnouncementIntervalMillis());
-                        } else {
-                            nextAnnouncementAt.remove(timerId);
-                        }
                     }
                 }
 
@@ -1447,8 +1897,46 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             return;
         }
 
+        long finishedTimerId = activeAnnouncementTimerId;
         activeAnnouncementTimerId = -1L;
         activeCompletionUtteranceId = null;
+        ManagedTimer timer;
+        boolean waitingForGroupAcknowledgement = false;
+        boolean advanced = false;
+        long finishedAt = System.currentTimeMillis();
+        synchronized (TIMERS) {
+            timer = TIMERS.get(finishedTimerId);
+            if (timer != null && timer.isPhaseAwaitingAnnouncement()) {
+                if (timer.isPhaseAnnouncementMuted()) {
+                    nextAnnouncementAt.remove(finishedTimerId);
+                } else if (timer.requiresPhaseConfirmation()) {
+                    waitingForGroupAcknowledgement = true;
+                } else {
+                    advanced = timer.advanceAfterAnnouncement(finishedAt);
+                }
+            }
+        }
+        if (waitingForGroupAcknowledgement) {
+            if (timer.repeatsCompletionAnnouncement() && timer.getAnnouncementIntervalMillis() > 0L) {
+                nextAnnouncementAt.put(finishedTimerId, finishedAt + timer.getAnnouncementIntervalMillis());
+            } else {
+                nextAnnouncementAt.remove(finishedTimerId);
+            }
+            maybeStartNextAnnouncement();
+            return;
+        }
+        if (advanced && timer != null && !timer.isTerminal()) {
+            nextAnnouncementAt.remove(finishedTimerId);
+            persistTimers();
+            tick();
+            return;
+        }
+        if (timer != null && timer.isCompleted() && timer.repeatsCompletionAnnouncement()
+                && timer.getAnnouncementIntervalMillis() > 0L) {
+            nextAnnouncementAt.put(finishedTimerId, finishedAt + timer.getAnnouncementIntervalMillis());
+        } else {
+            nextAnnouncementAt.remove(finishedTimerId);
+        }
         maybeStartNextAnnouncement();
     }
 
@@ -1508,11 +1996,15 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
      */
     private void persistTimers() {
         List<ManagedTimer> timersToPersist = new ArrayList<>();
+        List<SavedTimer> savedTimersToPersist = new ArrayList<>();
+        synchronized (SAVED_TIMERS) {
+            savedTimersToPersist.addAll(SAVED_TIMERS.values());
+        }
         synchronized (TIMERS) {
             for (ManagedTimer timer : TIMERS.values()) {
                 timersToPersist.add(new ManagedTimer(timer));
             }
         }
-        TimerPersistence.save(getApplicationContext(), timersToPersist);
+        TimerPersistence.save(getApplicationContext(), savedTimersToPersist, timersToPersist);
     }
 }

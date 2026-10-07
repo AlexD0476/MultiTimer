@@ -23,15 +23,31 @@
             android:layout_gravity="center_vertical"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/timerName"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/textPrimary"
-                android:textSize="19sp"
-                android:textStyle="bold" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/timerTypeIcon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginEnd="8dp"
+                    android:contentDescription="@string/timer_type_standard"
+                    android:tint="@color/accentWarm" />
+
+                <TextView
+                    android:id="@+id/timerName"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/textPrimary"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/timerRemaining"
@@ -72,7 +88,7 @@
                     android:background="@android:color/transparent"
                     android:contentDescription="@string/action_restart_timer"
                     android:padding="6dp"
-                    android:src="@android:drawable/ic_media_play"
+                    android:src="@drawable/ic_ui_play"
                     android:tint="@color/textSecondary" />
 
                 <ImageButton
@@ -82,7 +98,7 @@
                     android:background="@android:color/transparent"
                     android:contentDescription="@string/action_dismiss_notification"
                     android:padding="6dp"
-                    android:src="@android:drawable/ic_lock_silent_mode"
+                    android:src="@drawable/ic_ui_mute"
                     android:tint="@color/textSecondary" />
 
                 <ImageButton
@@ -92,7 +108,7 @@
                     android:background="@android:color/transparent"
                     android:contentDescription="@string/action_delete_timer"
                     android:padding="6dp"
-                    android:src="@android:drawable/ic_menu_delete"
+                    android:src="@drawable/ic_ui_delete"
                     android:tint="@color/textSecondary" />
             </LinearLayout>
 

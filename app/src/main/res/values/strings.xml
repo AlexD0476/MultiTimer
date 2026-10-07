@@ -7,8 +7,37 @@
     <string name="splash_title">MultiTimer</string>
     <string name="splash_subtitle">Parallel. Benannt. Praezise.</string>
     <string name="hint_timer_name">Timer-Name</string>
+    <string name="hint_hours">Stunden</string>
     <string name="hint_minutes">Minuten</string>
     <string name="hint_seconds">Sekunden</string>
+    <string name="label_completion_text">Ansagetext</string>
+    <string name="label_group_completion_text">Gruppen-Abschlusstext</string>
+    <string name="label_timer_type">Timerart</string>
+    <string name="timer_type_standard">Einzeltimer</string>
+    <string name="timer_type_interval_choice">Intervalltimer</string>
+    <string name="timer_type_group_choice">Timergruppe</string>
+    <string name="hint_repeat_count">Intervalle insgesamt</string>
+    <string name="repeat_count_explanation">Gesamtzahl der Intervalle; 0 wiederholt unbegrenzt.</string>
+    <string name="label_interval_confirmation">Vor jedem weiteren Intervall bestätigen</string>
+    <string name="interval_confirmation_message">Intervall %1$s ist abgeschlossen. Soll das nächste Intervall starten?</string>
+    <string name="action_confirm_next_interval">Nächstes Intervall starten</string>
+    <string name="action_mute_phase_announcement">Stumm schalten</string>
+    <string name="action_phase_announcement_muted">Stummgeschaltet</string>
+    <string name="label_group_steps">Abhängige Timer</string>
+    <string name="group_step_confirmation_message">Schritt %1$s (%2$d von %3$d) ist abgeschlossen. Bestätige, um fortzufahren.</string>
+    <string name="action_confirm_next_group_step">Nächsten Schritt starten</string>
+    <string name="action_finish_timer_group">Gruppe beenden</string>
+    <string name="action_add_group_step">Schritt hinzufügen</string>
+    <string name="label_group_step">Schritt %1$d</string>
+    <string name="default_group_step_name">Timer %1$d</string>
+    <string name="hint_group_step_name">Timername</string>
+    <string name="hint_group_step_text">Ansagetext</string>
+    <string name="action_move_step_up">Schritt nach oben</string>
+    <string name="action_move_step_down">Schritt nach unten</string>
+    <string name="action_remove_step">Schritt entfernen</string>
+    <string name="error_group_steps_required">Eine Timergruppe benötigt mindestens zwei Schritte.</string>
+    <string name="error_group_step_name_required">Bitte jeden Gruppenschritt benennen.</string>
+    <string name="error_repeat_count_invalid">Bitte eine gültige Wiederholungszahl eingeben.</string>
     <string name="action_new_timer">Neuer Timer</string>
     <string name="action_create_timer">Timer anlegen</string>
     <string name="action_start_timer">Timer starten</string>
@@ -25,8 +54,48 @@
     <string name="section_active_timers">Laufende und beendete Timer</string>
     <string name="section_running_timers">Timerübersicht</string>
     <string name="section_running_timers_hint">Laufende Timer stehen oben und sind nach Restzeit sortiert.</string>
+    <string name="tab_running_timers">Laufende Timer</string>
+    <string name="tab_running_timers_accessibility">Laufende Timer, %1$d aktiv</string>
+    <string name="running_timer_count_overflow">99+</string>
+    <string name="tab_saved_timers">Gespeicherte Timer</string>
     <string name="empty_state">Noch keine Timer aktiv. Gib einem Timer einen Namen und starte ihn.</string>
     <string name="empty_state_running">Keine laufenden Timer. Erstelle einen neuen Timer über den Button oben.</string>
+    <string name="empty_running_timers">Keine laufenden Timer.</string>
+    <string name="empty_saved_timers">Noch keine Timer gespeichert.</string>
+    <string name="timer_saved_banner">%1$s gespeichert</string>
+    <string name="timer_started_banner">%1$s gestartet</string>
+    <string name="interval_progress_finite">%1$d / %2$d</string>
+    <string name="interval_progress_unlimited">%1$d / unendlich</string>
+    <string name="timer_status_saved">GESPEICHERT</string>
+    <string name="timer_status_announcing">ANSAGE</string>
+    <string name="timer_run_completed">Abgeschlossen</string>
+    <string name="timer_phase_announcement">Ansage: %1$s</string>
+    <string name="timer_type_interval">Intervall</string>
+    <string name="timer_type_group">Timergruppe (%1$d Schritte)</string>
+    <string name="sort_by">Sortieren</string>
+    <string name="sort_alpha">Alphabetisch</string>
+    <string name="sort_recent_started">Zuletzt gestartet</string>
+    <string name="sort_remaining">Restdauer</string>
+    <string name="sort_most_used">Am meisten genutzt</string>
+    <string name="sort_recent_created">Zuletzt angelegt</string>
+    <string name="sort_timer_type">Timerart</string>
+    <string name="sort_label_alpha">Sortieren: Alphabetisch</string>
+    <string name="sort_label_recent_started">Sortieren: Zuletzt gestartet</string>
+    <string name="sort_label_remaining">Sortieren: Restdauer</string>
+    <string name="sort_label_most_used">Sortieren: Am meisten genutzt</string>
+    <string name="sort_label_recent_created">Sortieren: Zuletzt angelegt</string>
+    <string name="sort_label_timer_type">Sortieren: Timerart</string>
+    <string name="sort_order_ascending">Aufsteigend</string>
+    <string name="sort_order_descending">Absteigend</string>
+    <string name="action_settings">Einstellungen</string>
+    <string name="dialog_app_settings_title">Einstellungen</string>
+    <string name="language_selection_title">Sprache auswählen / Select language</string>
+    <string name="label_language">Sprache</string>
+    <string name="action_save_settings">Speichern</string>
+    <string name="setting_force_alarm_sound">Alarmton bei Stummschaltung erzwingen</string>
+    <string name="setting_force_alarm_sound_description">Spielt den Alarm mit der eingestellten Alarmlautstärke ab, unabhängig von Klingelton und Medienlautstärke.</string>
+    <string name="dialog_delete_saved_timer_title">Timer-Vorlage löschen?</string>
+    <string name="dialog_delete_saved_timer_message">Soll die gespeicherte Vorlage %1$s gelöscht werden? Bereits laufende Timer bleiben unverändert.</string>
     <string name="dialog_new_timer_title">Neuen Timer erfassen</string>
     <string name="dialog_edit_timer_title">Timer bearbeiten</string>
     <string name="dialog_cancel_timer_title">Wirklich abbrechen?</string>
@@ -48,6 +117,8 @@
 %2$s</string>
     <string name="error_name_required">Bitte einen Namen eingeben.</string>
     <string name="error_duration_required">Bitte eine Dauer größer als 0 setzen.</string>
+    <string name="error_minutes_range">Minuten muessen zwischen 0 und 59 liegen.</string>
+    <string name="error_seconds_range">Sekunden muessen zwischen 0 und 59 liegen.</string>
     <string name="timer_status_running">LÄUFT</string>
     <string name="timer_status_ready">BEREIT</string>
     <string name="timer_status_completed">FERTIG</string>
@@ -57,6 +128,7 @@
     <string name="timer_duration_template">Dauer: %1$s</string>
     <string name="channel_running_name">Aktive Timer</string>
     <string name="channel_running_description">Zeigt laufende Timer als stille Status-Benachrichtigung an.</string>
+    <string name="foreground_timer_service_active">Timer laufen im Hintergrund.</string>
     <string name="channel_finished_name">Abgeschlossene Timer</string>
     <string name="channel_finished_description">Informiert lautstark über fertig abgelaufene Timer.</string>
     <string name="summary_finishing_voice">Letzte Sprachansage wird abgespielt.</string>
@@ -68,4 +140,9 @@
     <string name="timer_notification_remaining">Verbleibend: %1$s</string>
     <string name="timer_notification_dismiss_action">Beenden</string>
     <string name="tts_completed">Fertig</string>
+    <string-array name="timer_type_names">
+        <item>@string/timer_type_standard</item>
+        <item>@string/timer_type_interval_choice</item>
+        <item>@string/timer_type_group_choice</item>
+    </string-array>
 </resources>

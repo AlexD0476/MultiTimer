@@ -30,47 +30,75 @@
             android:textStyle="bold" />
 
         <ImageButton
-            android:id="@+id/infoButton"
+            android:id="@+id/sortButton"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@drawable/bg_status_chip"
-            android:contentDescription="@string/action_show_info"
+            android:contentDescription="@string/sort_by"
             android:padding="8dp"
-            android:src="@android:drawable/ic_menu_help"
+            android:src="@drawable/ic_ui_sort"
+            android:tint="@color/accentWarm" />
+
+        <ImageButton
+            android:id="@+id/infoButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="5dp"
+            android:background="@drawable/bg_status_chip"
+            android:contentDescription="@string/action_settings"
+            android:padding="8dp"
+            android:src="@drawable/ic_ui_settings"
             android:tint="@color/accentWarm" />
     </LinearLayout>
+
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/timerTabs"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        app:tabGravity="fill"
+        app:tabIndicatorColor="@color/accentWarm"
+        app:tabMode="fixed"
+        app:tabSelectedTextColor="@color/textPrimary"
+        app:tabTextColor="@color/textSecondary"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/headerRow" />
 
     <TextView
         android:id="@+id/emptyState"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="18dp"
+        android:layout_marginTop="8dp"
         android:gravity="center"
-        android:text="@string/empty_state"
+        android:text="@string/empty_running_timers"
         android:textColor="@color/textMuted"
         android:textSize="15sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/headerRow" />
+        app:layout_constraintTop_toBottomOf="@id/timerTabs" />
 
-    <com.google.android.material.button.MaterialButton
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/newTimerButton"
-        style="@style/Widget.MultiTimer.PrimaryButton"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="@string/action_new_timer"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_margin="20dp"
+        android:contentDescription="@string/action_new_timer"
+        android:src="@drawable/ic_ui_add"
+        app:backgroundTint="@color/accentPrimary"
+        app:elevation="8dp"
+        app:tint="@color/nightBackground"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/timerRecyclerView"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:clipToPadding="false"
-        android:paddingBottom="16dp"
-        app:layout_constraintBottom_toTopOf="@id/newTimerButton"
+        android:paddingBottom="96dp"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/emptyState" />

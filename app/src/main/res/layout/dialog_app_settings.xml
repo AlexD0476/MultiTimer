@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="8dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/label_language"
+        android:textColor="@color/textSecondary"
+        android:textSize="14sp" />
+
+    <Spinner
+        android:id="@+id/settingLanguage"
+        android:layout_width="match_parent"
+        android:layout_height="48dp" />
+
+    <com.google.android.material.switchmaterial.SwitchMaterial
+        android:id="@+id/settingForceAlarmSound"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/setting_force_alarm_sound"
+        android:textColor="@color/textPrimary" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="4dp"
+        android:text="@string/setting_force_alarm_sound_description"
+        android:textColor="@color/textMuted"
+        android:textSize="13sp" />
+</LinearLayout>

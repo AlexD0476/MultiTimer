@@ -17,6 +17,7 @@ Beim Ablauf wird der Timer per TextToSpeech angesagt.
 - targetSdk: 36
 - Build: Gradle 8.7, Android Gradle Plugin 8.5.2
 - Paket: com.example.multitimer
+- App-Sprachen: Deutsch, Englisch, Französisch, Spanisch und Portugiesisch (Portugal); die Sprache wird beim Erststart gewählt und bleibt in den AppCompat-Locale-Einstellungen gespeichert.
 
 ## 3. Architektur-Ueberblick
 
@@ -24,14 +25,14 @@ Die App besteht aus einer einfachen 3-Schichten-Struktur:
 
 1. UI-Schicht
 - SplashActivity startet MainActivity.
-- MainActivity verwaltet Dialoge, Eingaben und RecyclerView.
-- TimerAdapter bindet Timerzustand auf die Timer-Card-UI.
+- MainActivity verwaltet Dialoge, Eingaben, zwei Tabs und Sortierauswahl.
+- TimerAdapter bindet gespeicherte Vorlagen und einzelne Lauf-Instanzen auf die Timer-Card-UI.
 
 2. Service-Schicht
-- TimerService verwaltet alle Timer zentral (in-memory), tickt sekundenweise, setzt Notifications und TTS.
+- TimerService verwaltet Vorlagen und unabhaengige Lauf-Instanzen zentral (in-memory), tickt sekundenweise, setzt Notifications und TTS.
 
 3. Persistenz-Schicht
-- TimerPersistence speichert und laedt Timer als JSON in SharedPreferences.
+- TimerPersistence speichert Vorlagen und Lauf-Instanzen getrennt als JSON in SharedPreferences und migriert das vorherige JSON-Arrayformat beim Laden.
 
 ## 4. Klassen und Verantwortungen
 
@@ -45,7 +46,10 @@ Datei: app/src/main/java/com/example/multitimer/SplashActivity.java
 Datei: app/src/main/java/com/example/multitimer/MainActivity.java
 
 - UI-Einstiegspunkt der App.
-- Initialisiert RecyclerView und Adapter.
+- Initialisiert Tabs fuer laufende Timer und gespeicherte Vorlagen sowie RecyclerView und Adapter.
+- Bietet Sortierung laufender Timer nach Name, Startzeit oder Restdauer und gespeicherter Vorlagen nach Nutzung, Erstellungszeit oder Name.
+- Das Zahnradmenue enthaelt Info und App-Einstellungen.
+- Die Einstellung "Alarmton bei Stummschaltung erzwingen" ist standardmaessig aktiv; deaktiviert laesst die App die System-Alarmlautstaerke unveraendert.
 - Oeffnet Dialoge fuer:
   - Neuer Timer
   - Timer bearbeiten
@@ -59,12 +63,14 @@ Datei: app/src/main/java/com/example/multitimer/MainActivity.java
 Wichtige Methoden:
 
 - `showCreateTimerDialog()`:
-  - Validiert Name und Dauer.
-  - Legt Timer ueber TimerService an.
-- `showEditTimerDialog(ManagedTimer timer)`:
-  - Ersetzt bestehenden Timer mit neuer Konfiguration.
+  - Erfasst Name und Timerart (Einzeltimer, Intervalltimer oder Timergruppe).
+  - Zeigt je nach Timerart Dauer/Ansagetext, Wiederholungszahl und die Wahl automatischer oder bestaetigter Intervallfortsetzung beziehungsweise editierbare Gruppenschritte.
+  - Fuellt den Abschlusstext aus dem Timernamen mit "Fertig" vor; eigene Anpassungen bleiben erhalten.
+  - Legt eine wiederverwendbare Vorlage ueber TimerService an.
+- `showEditTimerDialog(SavedTimer timer)`:
+  - Oeffnet denselben typspezifischen Editor mit den gespeicherten Werten.
 - `refreshTimers()`:
-  - Holt Snapshot vom TimerService.
+  - Holt je nach aktivem Tab einen Vorlagen- oder Lauf-Snapshot vom TimerService.
   - Aktualisiert Adapter und Empty-State.
 - `setDialogUiBlocked(boolean blocked)`:
   - Aktiviert/Deaktiviert Scrim und Interaktionen im Hintergrund.
@@ -76,60 +82,82 @@ Datei: app/src/main/java/com/example/multitimer/TimerAdapter.java
 - Definiert die Action-Callbacks ueber `OnTimerActionListener`.
 - Setzt Statuschip-Farbe, Text und Blink-Animation.
 
-UI-Verhalten pro Zustand:
+Im Vorlagen-Tab zeigt die Karte Name und Dauer. Die Nutzungshaeufigkeit wird nicht in der UI angezeigt, bleibt aber als Sortiermetadatum erhalten. Der Start-Button erzeugt eine neue Lauf-Instanz; Name antippen bearbeitet die Vorlage und Loeschen entfernt nur die Vorlage. Aktive Laeufe behalten ihre kopierte Konfiguration.
 
-1. Ready (angelegt, noch nicht gestartet)
-- Status: "Bereit"
-- Action-Button: Start
-- Delete: aktiv
-- Mute: inaktiv
+Im Lauf-Tab zeigt jede Karte genau eine gestartete Timer-Instanz. Laufende Instanzen lassen sich abbrechen; unbestaetigte Abschluesse bleiben dort bis Notification-Bestaetigung oder Entfernen sichtbar.
 
-2. Running
+Jede Karte zeigt links neben dem Namen ein Piktogramm fuer Einzeltimer, Intervalltimer oder Timergruppe.
+
+Sortierung:
+- Lauf-Tab: alphabetisch, zuletzt gestartet, Restdauer oder Timerart.
+- Vorlagen-Tab: am meisten genutzt, zuletzt angelegt, alphabetisch oder Timerart.
+- Erneute Auswahl des aktiven Kriteriums wechselt je Tab zwischen auf- und absteigender Richtung; das Sortiersymbol zeigt die aktuelle Richtung.
+- Das Zahnrad in der Kopfzeile oeffnet ein erweiterbares Kontextmenue mit dem Infoeintrag.
+
+UI-Verhalten pro Laufzustand:
+
+1. Running
 - Status: "Laeuft" (gelb + blinkend)
 - Action-Button: Abbrechen
 - Delete: inaktiv
 - Mute: inaktiv
 
-3. Completed
+2. Completed
 - Status: "Fertig" (gruen)
-- Action-Button: Neustart
-- Delete: aktiv
+- Action-Button: erneuter Start aus der Vorlage
+- Delete: entfernt den abgeschlossenen Lauf, nicht die Vorlage
 - Mute: aktiv, solange Notification nicht dismissed wurde
 - Blinkt, solange Notification aktiv ist
-
-4. Cancelled
-- Status: "Abgebrochen" (rot)
-- Action-Button: Neustart
-- Delete: aktiv
-- Mute: inaktiv
 
 ### ManagedTimer
 Datei: app/src/main/java/com/example/multitimer/ManagedTimer.java
 
-Datenmodell eines Timers mit Kernfeldern:
+Datenmodell einer einzelnen Lauf-Instanz mit Kernfeldern:
 
 - `id`
+- `sourceSavedTimerId`
 - `name`
 - `durationMillis`
+- `startedAtMillis`
+- `completionText` (optional; leer bedeutet Standardtext "Fertig")
 - `endTimeMillis`
-- `started`
 - `completed`
-- `cancelled`
 - `notificationDismissed`
 
 Kernmethoden:
 
 - `isRunning(now)`
 - `shouldComplete(now)`
-- `markStarted(now)`
 - `markCompleted()`
-- `markCancelled()`
 - `markNotificationDismissed()`
+
+### SavedTimer
+
+Datei: app/src/main/java/com/example/multitimer/SavedTimer.java
+
+Enthaelt die wiederverwendbare Timerkonfiguration und Sortiermetadaten:
+
+- `id`, `name`, `durationMillis`
+- Alarmintervall, Alarmlautstaerke und optionaler `completionText`
+- `createdAtMillis`, `lastStartedAtMillis`, `usageCount`
+- `timerType`, `repeatCount` und geordnete `steps`
+- `waitForIntervalConfirmation` fuer Intervalltimer
+
+### TimerType und TimerStep
+
+- `TimerType` unterscheidet `STANDARD`, `INTERVAL` und `GROUP`.
+- `TimerStep` speichert Gruppenname, Dauer und individuellen Abschlusstext.
+- Timergruppen besitzen zusaetzlich einen eigenen finalen Abschlusstext, der nach Bestaetigung des letzten Schritts gesprochen wird.
+- Bei Intervallen bedeutet `repeatCount = 0` unbegrenzte Wiederholung; jeder endliche Wert ist die Gesamtzahl der Intervalle (z. B. 3 bedeutet genau 3 Durchlaeufe).
+- Intervalltimer starten standardmaessig automatisch weiter und sprechen pro Intervallende genau einmal. Ist `waitForIntervalConfirmation` aktiviert, wiederholt sich die TTS-Ansage im Alarmabstand bis zur Bestaetigung.
+- Gruppen zeigen bei jedem abgelaufenen Schritt einen nicht wegwischbaren Bestaetigungsdialog; erst danach startet der naechste Schritt. Der letzte Schritt wartet auf Bestaetigung zum Beenden.
+- Die TTS-Ansage einer offenen Gruppen- oder bestaetigungspflichtigen Intervallphase wird im konfigurierten Alarmabstand wiederholt, bis bestaetigt oder der Lauf beendet wird. Die positive Notification-Aktion bestaetigt direkt; ein Swipe oeffnet separat eine Abbruchrueckfrage.
+- Fortschritt und ausstehende Ansagen werden persistiert und nach Prozessneustart fortgesetzt.
 
 ### TimerService
 Datei: app/src/main/java/com/example/multitimer/TimerService.java
 
-Zentrale Laufzeitlogik fuer alle Timer.
+Zentrale Laufzeitlogik fuer gespeicherte Vorlagen und unabhaengige Timerlaeufe.
 
 Wesentliche Aufgaben:
 
@@ -144,27 +172,19 @@ Wesentliche Aufgaben:
 Wichtige statische APIs fuer UI:
 
 - `enqueueCreateTimer(...)`
+- `enqueueStartSavedTimer(...)`
 - `enqueueRestartTimer(...)`
+- `enqueueDeleteSavedTimer(...)`
 - `enqueueCancelTimer(...)`
 - `enqueueReplaceTimer(...)`
 - `enqueueDismissNotification(...)`
 - `enqueueDismissTimer(...)`
 - `getTimersSnapshot()`
+- `getSavedTimersSnapshot()`
 - `ensureTimersLoaded(...)`
 - `ensureServiceRunningForActiveTimers(...)`
 
-#### Timer-Sortierung (`getTimersSnapshot`)
-
-Die Anzeige wird in Gruppen sortiert:
-
-1. Completed + Notification noch nicht dismissed
-2. Running
-3. Sonstige terminale Timer (z. B. dismissed oder cancelled)
-
-Sortierung innerhalb der Gruppen:
-
-- Running nach `endTimeMillis`
-- Sonstige nach Name (case-insensitive), dann ID
+`getTimersSnapshot()` enthaelt laufende Instanzen, Gruppen-/Intervall-Uebergaenge und noch nicht bestaetigte Abschluesse. `getSavedTimersSnapshot()` enthaelt ausschliesslich Vorlagen. Jeder Start erstellt eine neue Lauf-ID und erhoeht die Nutzung der Vorlage.
 
 #### Foreground-Service und Android 14+/16
 
@@ -177,19 +197,24 @@ Sortierung innerhalb der Gruppen:
 - Running-Channel: niedrige Prioritaet.
 - Finished-Channel: still, ohne Vibration/Sound.
 - Jede Timer-ID entspricht einer eigenen Notification-ID.
-- Bei completed wird eine Dismiss-Action angeboten.
+- Completion-Sound verwendet `STREAM_ALARM`; `AppSettings` steuert, ob der Timer die System-Alarmlautstaerke vor dem Alarm auf seine konfigurierte Timerlautstaerke setzt.
+- Alle aktiven Timerlaeufe werden einzeln angezeigt und koennen weggewischt werden; der Swipe oeffnet vor Abbruch/Entfernen eine Bestaetigungs-Activity.
+- Bestaetigungspflichtige Gruppen- und Intervallphasen erhalten eine High-Priority-Alarm-Notification mit Full-Screen-Intent und Aktionen.
+- Full-Screen-Intents benoetigen `USE_FULL_SCREEN_INTENT`; ist die Systemfreigabe nicht vorhanden, bleibt die Notification mit Heads-up-/Aktions-Fallback sichtbar.
+- Normale abgeschlossene Timer bieten weiterhin eine Dismiss-Action.
 
 #### TTS-Logik
 
-- Beim Abschluss: Ansage "<Timername> Fertig".
-- Wiederholung alle 5 Sekunden, solange completed und nicht dismissed.
-- Fallback auf Standard-Locale, falls `Locale.GERMAN` nicht verfuegbar ist.
+- Beim Abschluss wird ausschliesslich der Inhalt des pro Timer gespeicherten Abschlusstexts gesprochen.
+- Beim Erstellen wird `<Timername> Fertig` vorbelegt; bei leerem oder fehlendem Text gilt weiterhin "Fertig" als Fallback.
+- Wiederholung im konfigurierten Alarmabstand, solange completed und nicht dismissed.
+- TTS verwendet die aktive App-Locale und faellt bei fehlenden Sprachdaten auf die System-Locale zurueck.
 
 ### TimerPersistence
 Datei: app/src/main/java/com/example/multitimer/TimerPersistence.java
 
-- Speichert Timerliste als JSON-Array in `SharedPreferences` (`multitimer_prefs`).
-- Laedt beim Start und rekonstruiert `ManagedTimer`-Objekte.
+- Speichert Vorlagen und aktive Lauf-Instanzen als getrennte JSON-Arrays in `SharedPreferences` (`multitimer_prefs`).
+- Migriert beim ersten Laden bestehende JSON-Array-Eintraege zu Vorlagen; zuvor aktive, noch nicht quittierte Timer werden als Lauf-Instanzen wiederhergestellt.
 - Parse-Fehler werden geloggt; Daten werden nicht blind ueberschrieben.
 
 ### BootReceiver
@@ -207,7 +232,7 @@ Datei: app/src/main/java/com/example/multitimer/TimerFormatter.java
 - Formatiert Dauer als:
   - `mm:ss` oder
   - `hh:mm:ss`
-- Locale: Germany
+- Locale: aktive App-/System-Locale
 
 ## 5. AndroidManifest-relevante Punkte
 
@@ -224,19 +249,20 @@ Datei: app/src/main/AndroidManifest.xml
 
 ## 6. Lebenszyklus eines Timers
 
-1. Benutzer legt Timer in MainActivity an.
-2. MainActivity sendet Intent an TimerService (`enqueueCreateTimer`).
-3. TimerService erzeugt ManagedTimer und persistiert Zustand.
-4. Tick-Loop aktualisiert Restzeit und Completion.
-5. Running-Timer hat aktive Notification.
-6. Bei Ablauf:
+1. Benutzer legt in MainActivity eine Timer-Vorlage an.
+2. MainActivity sendet Intent an TimerService (`enqueueCreateTimer`); die Vorlage bleibt gespeichert.
+3. Jeder Start aus dem Vorlagen-Tab erzeugt eine neue `ManagedTimer`-Instanz mit eigener ID und Notification.
+4. Intervalltimer starten nach jeder Ansage standardmaessig automatisch dieselbe Dauer erneut oder warten optional auf Bestaetigung; Gruppen warten mit wiederholter TTS-Ansage auf Bestaetigung, bevor der naechste `TimerStep` startet.
+5. Der Tick-Loop aktualisiert Restzeit und Completion der Lauf-Instanzen.
+6. Jede laufende Instanz hat eine eigene Notification.
+7. Bei Ablauf:
 - Status wird completed.
 - Notification bleibt sichtbar (still).
 - TTS-Ansage startet und wiederholt sich.
-7. Benutzer kann:
-- Neustarten
+8. Benutzer kann:
+- Eine weitere unabhaengige Instanz aus der Vorlage starten
 - Notification stummschalten (dismiss)
-- Timer loeschen
+- Den Lauf entfernen oder abbrechen, ohne die Vorlage zu loeschen
 
 ## 7. Build und lokales Testen
 
@@ -260,5 +286,6 @@ APK-Ausgabe:
 
 - Diff-basiertes RecyclerView-Update (statt `notifyDataSetChanged`) fuer bessere Performance.
 - Unit-Tests fuer Sortierlogik in `getTimersSnapshot()`.
+- Unit-Tests fuer endliche/unendliche Intervallphasen und Gruppenschritt-Fortschritt.
 - Instrumented Tests fuer Dialog-Validierung und Status-Transitions.
 - Optionaler Export/Import von Timern als JSON-Datei.

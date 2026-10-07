@@ -28,6 +28,13 @@
         <item name="android:windowBackground">@drawable/bg_screen</item>
     </style>
 
+    <style name="Theme.MultiTimer.TimerAlert" parent="Theme.MultiTimer">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
     <style name="Widget.MultiTimer.TextInputLayout" parent="Widget.Material3.TextInputLayout.OutlinedBox">
         <item name="boxBackgroundColor">@color/surfaceCard</item>
         <item name="boxStrokeColor">@color/strokeStrong</item>

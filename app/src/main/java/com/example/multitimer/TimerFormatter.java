@@ -22,8 +22,8 @@ final class TimerFormatter {
         long seconds = totalSeconds % 60L;
 
         if (hours > 0L) {
-            return String.format(Locale.GERMANY, "%02d:%02d:%02d", hours, minutes, seconds);
+            return String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds);
         }
-        return String.format(Locale.GERMANY, "%02d:%02d", minutes, seconds);
+        return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
     }
 }

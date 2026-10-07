@@ -128,7 +128,6 @@
     <string name="timer_duration_template">Duration: %1$s</string>
     <string name="channel_running_name">Active timer</string>
     <string name="channel_running_description">Displays running timers as a silent status notification.</string>
-    <string name="foreground_timer_service_active">Timers are running in the background.</string>
     <string name="channel_finished_name">Completed timers</string>
     <string name="channel_finished_description">Alerts you when timers finish.</string>
     <string name="summary_finishing_voice">The final voice announcement is playing.</string>

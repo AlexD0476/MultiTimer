@@ -128,7 +128,6 @@
     <string name="timer_duration_template">Duración: %1$s</string>
     <string name="channel_running_name">Temporizadores activos</string>
     <string name="channel_running_description">Muestra los temporizadores en curso como notificaciones silenciosas.</string>
-    <string name="foreground_timer_service_active">Los temporizadores están activos en segundo plano.</string>
     <string name="channel_finished_name">Temporizadores completados</string>
     <string name="channel_finished_description">Avisa cuando termina un temporizador.</string>
     <string name="summary_finishing_voice">Se está reproduciendo el último aviso de voz.</string>

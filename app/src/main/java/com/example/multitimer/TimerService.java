@@ -79,6 +79,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
 
     private static final String CHANNEL_RUNNING = "multitimer_running";
     private static final String CHANNEL_FINISHED = "multitimer_finished_silent";
+    private static final String GROUP_KEY_TIMERS = "com.example.multitimer.TIMERS";
     private static final String SWIPE_CONFIRMATION_TAG_PREFIX = "swipe_cancel_";
     private static final int FOREGROUND_NOTIFICATION_ID = Integer.MAX_VALUE;
     private static final long STOP_DELAY_MILLIS = 4000L;
@@ -1366,12 +1367,13 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
             NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_RUNNING)
                     .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                     .setContentTitle(getString(R.string.app_name))
-                    .setContentText(getString(R.string.foreground_timer_service_active))
                     .setCategory(NotificationCompat.CATEGORY_SERVICE)
                     .setPriority(NotificationCompat.PRIORITY_MIN)
                     .setOngoing(true)
                     .setOnlyAlertOnce(true)
                     .setSilent(true)
+                    .setGroup(GROUP_KEY_TIMERS)
+                    .setGroupSummary(true)
                     .setContentIntent(buildMainPendingIntent());
             
             try {
@@ -1459,6 +1461,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 .setContentTitle(getString(R.string.dialog_cancel_timer_title))
                 .setContentText(confirmationText)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(confirmationText))
+                .setGroup(GROUP_KEY_TIMERS)
                 .setCategory(NotificationCompat.CATEGORY_STATUS)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setOngoing(true)
@@ -1490,6 +1493,7 @@ public final class TimerService extends Service implements TextToSpeech.OnInitLi
                 .setContentTitle(timer.getName())
                 .setContentText(contentText)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(contentText))
+            .setGroup(GROUP_KEY_TIMERS)
             .setPriority(awaitingConfirmation ? NotificationCompat.PRIORITY_MAX : NotificationCompat.PRIORITY_LOW)
             .setCategory(awaitingConfirmation ? NotificationCompat.CATEGORY_ALARM : NotificationCompat.CATEGORY_STATUS)
             .setOngoing(false)

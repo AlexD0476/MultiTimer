@@ -179,11 +179,11 @@ final class TimerAdapter extends RecyclerView.Adapter<TimerAdapter.TimerViewHold
                 statusView.setTextColor(ContextCompat.getColor(itemView.getContext(),
                         timer.isCompleted() ? R.color.accentPrimaryDark : R.color.statusRedStroke));
                 remainingView.setText(R.string.timer_run_completed);
-                actionButton.setImageResource(R.drawable.ic_ui_play);
-                actionButton.setContentDescription(itemView.getContext().getString(R.string.action_restart_timer));
+                actionButton.setImageResource(R.drawable.ic_ui_cancel);
+                actionButton.setContentDescription(itemView.getContext().getString(R.string.action_cancel_timer));
                 actionButton.setAlpha(1f);
                 actionButton.setEnabled(true);
-                actionButton.setOnClickListener(v -> actionListener.onRestartTimer(timer));
+                actionButton.setOnClickListener(v -> actionListener.onDismissTimer(timer));
                 if (timer.isCompleted() && !timer.isNotificationDismissed()) {
                     startBlink();
                 } else {

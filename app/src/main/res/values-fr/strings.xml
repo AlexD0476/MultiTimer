@@ -128,7 +128,6 @@
     <string name="timer_duration_template">Durée : %1$s</string>
     <string name="channel_running_name">Minuteurs actifs</string>
     <string name="channel_running_description">Affiche les minuteurs en cours dans une notification silencieuse.</string>
-    <string name="foreground_timer_service_active">Les minuteurs fonctionnent en arrière-plan.</string>
     <string name="channel_finished_name">Minuteurs terminés</string>
     <string name="channel_finished_description">Signale la fin des minuteurs.</string>
     <string name="summary_finishing_voice">Dernière annonce en cours.</string>
